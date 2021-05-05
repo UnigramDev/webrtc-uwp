@@ -193,6 +193,8 @@ flat_set<uint32_t> RtpTransport::GetSsrcsForSink(RtpPacketSinkInterface* sink) {
 void RtpTransport::DemuxPacket(rtc::CopyOnWriteBuffer packet,
                                webrtc::Timestamp arrival_time,
                                rtc::EcnMarking ecn) {
+  rtc::CopyOnWriteBuffer packetData = packet;
+
   RtpPacketReceived parsed_packet(&header_extension_map_);
   parsed_packet.set_arrival_time(arrival_time);
   parsed_packet.set_ecn(ecn);
@@ -203,11 +205,14 @@ void RtpTransport::DemuxPacket(rtc::CopyOnWriteBuffer packet,
     return;
   }
 
+  bool isUnresolved = false;
   if (!rtp_demuxer_.OnRtpPacket(parsed_packet)) {
-    RTC_LOG(LS_VERBOSE) << "Failed to demux RTP packet: "
+    isUnresolved = true;
+    RTC_LOG(LS_WARNING) << "Failed to demux RTP packet: "
                         << RtpDemuxer::DescribePacket(parsed_packet);
     NotifyUnDemuxableRtpPacketReceived(parsed_packet);
   }
+  ProcessRtpPacket(parsed_packet, isUnresolved);
 }
 
 bool RtpTransport::IsTransportWritable() {

@@ -47,6 +47,8 @@ struct FftData {
   void Spectrum(Aec3Optimization optimization,
                 rtc::ArrayView<float> power_spectrum) const {
     RTC_DCHECK_EQ(kFftLengthBy2Plus1, power_spectrum.size());
+#pragma warning(push)
+#pragma warning(disable:4065)
     switch (optimization) {
 #if defined(WEBRTC_ARCH_X86_FAMILY)
       case Aec3Optimization::kSse2: {
@@ -71,6 +73,7 @@ struct FftData {
         std::transform(re.begin(), re.end(), im.begin(), power_spectrum.begin(),
                        [](float a, float b) { return a * a + b * b; });
     }
+#pragma warning(pop)
   }
 
   // Copy the data from an interleaved array.

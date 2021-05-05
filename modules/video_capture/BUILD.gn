@@ -107,32 +107,45 @@ if (!build_with_chromium || is_linux || is_chromeos) {
       }
     }
     if (is_win) {
-      sources += [
-        "windows/device_info_ds.cc",
-        "windows/device_info_ds.h",
-        "windows/help_functions_ds.cc",
-        "windows/help_functions_ds.h",
-        "windows/sink_filter_ds.cc",
-        "windows/sink_filter_ds.h",
-        "windows/video_capture_ds.cc",
-        "windows/video_capture_ds.h",
-        "windows/video_capture_factory_windows.cc",
-      ]
-
-      libs = [
-        "ole32.lib",
-        "oleaut32.lib",
-        "strmiids.lib",
-        "user32.lib",
-      ]
-
-      if (build_with_mozilla) {
+      if (rtc_win_video_capture_winrt) {
         sources += [
-          "windows/BaseFilter.cpp",
-          "windows/BaseInputPin.cpp",
-          "windows/BasePin.cpp",
-          "windows/MediaType.cpp",
+          "windows/device_info_winrt.cc",
+          "windows/device_info_winrt.h",
+          "windows/help_functions_winrt.cc",
+          "windows/help_functions_winrt.h",
+          "windows/video_capture_winrt.cc",
+          "windows/video_capture_winrt.h",
+          "windows/video_capture_factory_windows.cc",
         ]
+        libs = [ "windowsapp.lib" ]
+      } else {
+        sources += [
+          "windows/device_info_ds.cc",
+          "windows/device_info_ds.h",
+          "windows/help_functions_ds.cc",
+          "windows/help_functions_ds.h",
+          "windows/sink_filter_ds.cc",
+          "windows/sink_filter_ds.h",
+          "windows/video_capture_ds.cc",
+          "windows/video_capture_ds.h",
+          "windows/video_capture_factory_windows.cc",
+        ]
+
+        libs = [
+          "ole32.lib",
+          "oleaut32.lib",
+          "strmiids.lib",
+          "user32.lib",
+        ]
+
+        if (build_with_mozilla) {
+          sources += [
+            "windows/BaseFilter.cpp",
+            "windows/BaseInputPin.cpp",
+            "windows/BasePin.cpp",
+            "windows/MediaType.cpp",
+          ]
+        }
       }
     }
     if (is_fuchsia) {
