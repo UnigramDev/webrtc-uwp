@@ -75,6 +75,7 @@ bool IsThreadRefEqual(const PlatformThreadRef& a, const PlatformThreadRef& b) {
 
 void SetCurrentThreadName(const char* name) {
 #if defined(WEBRTC_WIN)
+#ifndef WINUWP
   // The SetThreadDescription API works even if no debugger is attached.
   // The names set with this API also show up in ETW traces. Very handy.
   static auto set_thread_description_func =
@@ -112,6 +113,7 @@ void SetCurrentThreadName(const char* name) {
   } __except (EXCEPTION_EXECUTE_HANDLER) {  // NOLINT
   }
 #pragma warning(pop)
+#endif
 #elif defined(WEBRTC_LINUX) || defined(WEBRTC_ANDROID)
   prctl(PR_SET_NAME, reinterpret_cast<unsigned long>(name));  // NOLINT
 #elif defined(WEBRTC_MAC) || defined(WEBRTC_IOS)

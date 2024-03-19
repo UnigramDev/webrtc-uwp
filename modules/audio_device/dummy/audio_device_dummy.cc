@@ -53,12 +53,20 @@ int32_t AudioDeviceDummy::SetPlayoutDevice(uint16_t index) {
   return -1;
 }
 
+int32_t AudioDeviceDummy::SetPlayoutDevice(std::string deviceId) {
+  return -1;
+}
+
 int32_t AudioDeviceDummy::SetPlayoutDevice(
     AudioDeviceModule::WindowsDeviceType device) {
   return -1;
 }
 
 int32_t AudioDeviceDummy::SetRecordingDevice(uint16_t index) {
+  return -1;
+}
+
+int32_t AudioDeviceDummy::SetRecordingDevice(std::string deviceId) {
   return -1;
 }
 

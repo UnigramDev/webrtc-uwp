@@ -60,9 +60,11 @@ class FileAudioDevice : public AudioDeviceGeneric {
 
   // Device selection
   int32_t SetPlayoutDevice(uint16_t index) override;
+  int32_t SetPlayoutDevice(std::string deviceId) override;
   int32_t SetPlayoutDevice(
       AudioDeviceModule::WindowsDeviceType device) override;
   int32_t SetRecordingDevice(uint16_t index) override;
+  int32_t SetRecordingDevice(std::string deviceId) override;
   int32_t SetRecordingDevice(
       AudioDeviceModule::WindowsDeviceType device) override;
 

@@ -89,8 +89,9 @@ bool DeleteFile(absl::string_view file) {
   return ::DeleteFileW(ToUtf16(file).c_str()) != 0;
 }
 
-bool MoveFile(absl::string_view old_file, absl::string_view new_file) {
-  return ::MoveFileW(ToUtf16(old_file).c_str(), ToUtf16(new_file).c_str()) != 0;
+bool MoveFile(const std::string& old_file, const std::string& new_file) {
+  return ::MoveFileExW(ToUtf16(old_file).c_str(), ToUtf16(new_file).c_str(),
+                     MOVEFILE_WRITE_THROUGH) != 0;
 }
 
 bool IsFile(absl::string_view file) {

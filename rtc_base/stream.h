@@ -115,6 +115,7 @@ class RTC_EXPORT StreamInterface {
   StreamResult WriteAll(ArrayView<const uint8_t> data,
                         size_t& written,
                         int& error) {
+#pragma warning(suppress : 4996)
     return WriteAll(data.data(), data.size(), &written, &error);
   }
 #pragma clang diagnostic pop

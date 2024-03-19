@@ -31,6 +31,7 @@ class AudioDeviceModuleDefault : public T {
   int32_t Init() override { return 0; }
   int32_t InitSpeaker() override { return 0; }
   int32_t SetPlayoutDevice(uint16_t index) override { return 0; }
+  int32_t SetPlayoutDevice(std::string deviceId) override { return 0; }
   int32_t SetPlayoutDevice(
       AudioDeviceModule::WindowsDeviceType device) override {
     return 0;
@@ -39,6 +40,7 @@ class AudioDeviceModuleDefault : public T {
   int32_t StopPlayout() override { return 0; }
   int32_t InitMicrophone() override { return 0; }
   int32_t SetRecordingDevice(uint16_t index) override { return 0; }
+  int32_t SetRecordingDevice(std::string deviceId) override { return 0; }
   int32_t SetRecordingDevice(
       AudioDeviceModule::WindowsDeviceType device) override {
     return 0;

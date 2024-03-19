@@ -922,7 +922,10 @@ void CaptureSinkFilter::ProcessCapturedFrame(
     size_t length,
     const VideoCaptureCapability& frame_info) {
   // Called on the capture thread.
-  capture_observer_->IncomingFrame(buffer, length, frame_info);
+  capture_observer_->IncomingFrame(
+      buffer, frame_info.width,
+      buffer + (static_cast<size_t>(frame_info.width) * frame_info.height),
+      frame_info.width, length, frame_info);
 }
 
 void CaptureSinkFilter::NotifyEvent(long code,

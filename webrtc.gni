@@ -231,7 +231,20 @@ declare_args() {
   # When set to true, a capturer implementation that uses the
   # Windows.Graphics.Capture APIs will be available for use. This introduces a
   # dependency on the Win 10 SDK v10.0.17763.0.
-  rtc_enable_win_wgc = is_win
+  rtc_enable_win_wgc = false
+  
+  # Defines which API should be used by the video capture module on Windows.
+  # The following are the current options:
+  # False: It uses DirectShow APIs. DirectShow should be used on builds
+  #        that need to be compatible with old versions of Windows (Vista/7).
+  # True:  It uses the Windows::Media APIs. This option is recommended for
+  #        Windows 10. It is ok to use this option with any API family
+  #        (desktop (Win32), app (Store), ...).
+  rtc_win_video_capture_winrt = false
+
+  # When is set to true, a H264 encoder using Windows Media Foundation
+  # will be included in the libwebrtc.lib
+  rtc_win_use_mf_h264 = false
 
   # Includes the dav1d decoder in the internal decoder factory when set to true.
   rtc_include_dav1d_in_internal_decoder_factory = true

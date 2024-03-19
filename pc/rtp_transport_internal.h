@@ -76,6 +76,9 @@ class RtpTransportInternal : public sigslot::has_slots<> {
     callback_undemuxable_rtp_packet_received_ = std::move(callback);
   }
 
+  sigslot::signal3<rtc::CopyOnWriteBuffer*, int64_t, bool>
+      SignalRtpPacketReceived;
+
   // Called whenever the network route of the P2P layer transport changes.
   // The argument is an optional network route.
   void SubscribeNetworkRouteChanged(

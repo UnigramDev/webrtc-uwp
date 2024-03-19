@@ -112,6 +112,10 @@ int32_t FileAudioDevice::SetPlayoutDevice(uint16_t index) {
   return -1;
 }
 
+int32_t FileAudioDevice::SetPlayoutDevice(std::string deviceId) {
+  return -1;
+}
+
 int32_t FileAudioDevice::SetPlayoutDevice(
     AudioDeviceModule::WindowsDeviceType device) {
   return -1;
@@ -122,6 +126,10 @@ int32_t FileAudioDevice::SetRecordingDevice(uint16_t index) {
     _record_index = index;
     return _record_index;
   }
+  return -1;
+}
+
+int32_t FileAudioDevice::SetRecordingDevice(std::string deviceId) {
   return -1;
 }
 

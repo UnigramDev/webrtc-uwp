@@ -138,7 +138,10 @@ void VideoCaptureImpl::DeliverRawFrame(uint8_t* videoFrame,
                                _rotateFrame, captureTime);
 }
 
-int32_t VideoCaptureImpl::IncomingFrame(uint8_t* videoFrame,
+int32_t VideoCaptureImpl::IncomingFrame(uint8_t* plane_y,
+                                        int32_t stride_y,
+                                        uint8_t* plane_uv,
+                                        int32_t stride_uv,
                                         size_t videoFrameLength,
                                         const VideoCaptureCapability& frameInfo,
                                         int64_t captureTime /*=0*/) {
@@ -150,13 +153,13 @@ int32_t VideoCaptureImpl::IncomingFrame(uint8_t* videoFrame,
 
   TRACE_EVENT1("webrtc", "VC::IncomingFrame", "capture_time", captureTime);
 
-  if (_rawDataCallBack) {
+  /*if (_rawDataCallBack) {
     DeliverRawFrame(videoFrame, videoFrameLength, frameInfo, captureTime);
     return 0;
-  }
+  }*/
 
   // Not encoded, convert to I420.
-  if (frameInfo.videoType != VideoType::kMJPEG) {
+  /*if (frameInfo.videoType != VideoType::kMJPEG) {
     // Allow buffers larger than expected. On linux gstreamer allocates buffers
     // page-aligned and v4l2loopback passes us the buffer size verbatim which
     // for most cases is larger than expected.
@@ -167,10 +170,10 @@ int32_t VideoCaptureImpl::IncomingFrame(uint8_t* videoFrame,
                         << ", Got " << videoFrameLength << ".";
       return -1;
     }
-  }
+  }*/
 
-  int stride_y = width;
-  int stride_uv = (width + 1) / 2;
+  int dst_stride_y = width;
+  int dst_stride_uv = (width + 1) / 2;
   int target_width = width;
   int target_height = abs(height);
 
@@ -187,7 +190,7 @@ int32_t VideoCaptureImpl::IncomingFrame(uint8_t* videoFrame,
   // In Windows, the image starts bottom left, instead of top left.
   // Setting a negative source height, inverts the image (within LibYuv).
   rtc::scoped_refptr<I420Buffer> buffer = I420Buffer::Create(
-      target_width, target_height, stride_y, stride_uv, stride_uv);
+      target_width, target_height, dst_stride_y, dst_stride_uv, dst_stride_uv);
 
   libyuv::RotationMode rotation_mode = libyuv::kRotate0;
   if (apply_rotation_) {
@@ -208,10 +211,11 @@ int32_t VideoCaptureImpl::IncomingFrame(uint8_t* videoFrame,
   }
 
   const int conversionResult = libyuv::ConvertToI420(
-      videoFrame, videoFrameLength, buffer.get()->MutableDataY(),
-      buffer.get()->StrideY(), buffer.get()->MutableDataU(),
-      buffer.get()->StrideU(), buffer.get()->MutableDataV(),
-      buffer.get()->StrideV(), 0, 0,  // No Cropping
+      plane_y, videoFrameLength, stride_y, plane_uv, stride_uv,
+      buffer.get()->MutableDataY(), buffer.get()->StrideY(),
+      buffer.get()->MutableDataU(), buffer.get()->StrideU(),
+      buffer.get()->MutableDataV(), buffer.get()->StrideV(), 0,
+      0,  // No Cropping
       width, height, target_width, target_height, rotation_mode,
       ConvertVideoType(frameInfo.videoType));
   if (conversionResult != 0) {

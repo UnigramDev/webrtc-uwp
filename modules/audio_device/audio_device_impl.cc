@@ -638,6 +638,12 @@ int32_t AudioDeviceModuleImpl::SetPlayoutDevice(uint16_t index) {
   return audio_device_->SetPlayoutDevice(index);
 }
 
+int32_t AudioDeviceModuleImpl::SetPlayoutDevice(std::string deviceId) {
+  RTC_LOG(LS_INFO) << __FUNCTION__ << "(" << deviceId << ")";
+  CHECKinitialized_();
+  return audio_device_->SetPlayoutDevice(deviceId);
+}
+
 int32_t AudioDeviceModuleImpl::SetPlayoutDevice(WindowsDeviceType device) {
   RTC_LOG(LS_INFO) << __FUNCTION__;
   CHECKinitialized_();
@@ -698,6 +704,12 @@ int32_t AudioDeviceModuleImpl::SetRecordingDevice(uint16_t index) {
   RTC_LOG(LS_INFO) << __FUNCTION__ << "(" << index << ")";
   CHECKinitialized_();
   return audio_device_->SetRecordingDevice(index);
+}
+
+int32_t AudioDeviceModuleImpl::SetRecordingDevice(std::string deviceId) {
+  RTC_LOG(LS_INFO) << __FUNCTION__ << "(" << deviceId << ")";
+  CHECKinitialized_();
+  return audio_device_->SetRecordingDevice(deviceId);
 }
 
 int32_t AudioDeviceModuleImpl::SetRecordingDevice(WindowsDeviceType device) {

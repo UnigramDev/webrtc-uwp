@@ -170,11 +170,17 @@ class ADMWrapper : public AudioDeviceModule, public AudioTransport {
   int32_t SetPlayoutDevice(uint16_t index) override {
     return impl_->SetPlayoutDevice(index);
   }
+  int32_t SetPlayoutDevice(std::string deviceId) override {
+    return impl_->SetPlayoutDevice(deviceId);
+  }
   int32_t SetPlayoutDevice(WindowsDeviceType device) override {
     return impl_->SetPlayoutDevice(device);
   }
   int32_t SetRecordingDevice(uint16_t index) override {
     return impl_->SetRecordingDevice(index);
+  }
+  int32_t SetRecordingDevice(std::string deviceId) override {
+    return impl_->SetRecordingDevice(deviceId);
   }
   int32_t SetRecordingDevice(WindowsDeviceType device) override {
     return impl_->SetRecordingDevice(device);
