@@ -186,21 +186,26 @@ flat_set<uint32_t> RtpTransport::GetSsrcsForSink(RtpPacketSinkInterface* sink) {
 
 void RtpTransport::DemuxPacket(rtc::CopyOnWriteBuffer packet,
                                int64_t packet_time_us) {
+  rtc::CopyOnWriteBuffer packetData = packet;
+
   RtpPacketReceived parsed_packet(&header_extension_map_,
-                                  packet_time_us == -1
-                                      ? Timestamp::MinusInfinity()
-                                      : Timestamp::Micros(packet_time_us));
+      packet_time_us == -1
+      ? Timestamp::MinusInfinity()
+      : Timestamp::Micros(packet_time_us));
   if (!parsed_packet.Parse(std::move(packet))) {
     RTC_LOG(LS_ERROR)
         << "Failed to parse the incoming RTP packet before demuxing. Drop it.";
     return;
   }
 
+  bool isUnresolved = false;
   if (!rtp_demuxer_.OnRtpPacket(parsed_packet)) {
+    isUnresolved = true;
     RTC_LOG(LS_VERBOSE) << "Failed to demux RTP packet: "
                         << RtpDemuxer::DescribePacket(parsed_packet);
     NotifyUnDemuxableRtpPacketReceived(parsed_packet);
   }
+  ProcessRtpPacket(parsed_packet, isUnresolved);
 }
 
 bool RtpTransport::IsTransportWritable() {

@@ -9,15 +9,26 @@
  */
 
 #include "api/scoped_refptr.h"
+
+#if defined(WEBRTC_VIDEO_CAPTURE_WINRT)
+#include "modules/video_capture/windows/device_info_winrt.h"
+#include "modules/video_capture/windows/video_capture_winrt.h"
+#else
 #include "modules/video_capture/windows/video_capture_ds.h"
+#endif
+
+#include "rtc_base/ref_counted_object.h"
 
 namespace webrtc {
 namespace videocapturemodule {
 
 // static
 VideoCaptureModule::DeviceInfo* VideoCaptureImpl::CreateDeviceInfo() {
-  // TODO(tommi): Use the Media Foundation version on Vista and up.
+#if defined(WEBRTC_VIDEO_CAPTURE_WINRT)
+  return DeviceInfoWinRT::Create();
+#else
   return DeviceInfoDS::Create();
+#endif  // WEBRTC_VIDEO_CAPTURE_WINRT
 }
 
 rtc::scoped_refptr<VideoCaptureModule> VideoCaptureImpl::Create(
@@ -25,8 +36,13 @@ rtc::scoped_refptr<VideoCaptureModule> VideoCaptureImpl::Create(
   if (device_id == nullptr)
     return nullptr;
 
+#if defined(WEBRTC_VIDEO_CAPTURE_WINRT)
+  auto capture = rtc::make_ref_counted<VideoCaptureWinRT>();
+#else
   // TODO(tommi): Use Media Foundation implementation for Vista and up.
   auto capture = rtc::make_ref_counted<VideoCaptureDS>();
+#endif  // WEBRTC_VIDEO_CAPTURE_WINRT
+
   if (capture->Init(device_id) != 0) {
     return nullptr;
   }

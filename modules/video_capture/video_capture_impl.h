@@ -73,7 +73,10 @@ class RTC_EXPORT VideoCaptureImpl : public VideoCaptureModule {
   const char* CurrentDeviceName() const override;
 
   // `capture_time` must be specified in NTP time format in milliseconds.
-  int32_t IncomingFrame(uint8_t* videoFrame,
+  int32_t IncomingFrame(uint8_t* plane_y,
+                        int32_t stride_y,
+                        uint8_t* plane_uv,
+                        int32_t stride_uv,
                         size_t videoFrameLength,
                         const VideoCaptureCapability& frameInfo,
                         int64_t captureTime = 0);

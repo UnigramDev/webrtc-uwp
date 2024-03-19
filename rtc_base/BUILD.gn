@@ -1598,7 +1598,28 @@ rtc_library("ssl") {
   }
 
   if (is_win) {
-    deps += [ ":win32" ]
+    sources += [
+      "win32.cc",
+      "win32.h",
+      "win32_window.cc",
+      "win32_window.h",
+    ]
+
+    if (current_os == "winuwp") {
+      sources -= [
+        "win32_window.cc",
+        "win32_window.h",
+      ]
+    }
+
+    libs = [
+      "crypt32.lib",
+      "iphlpapi.lib",
+      "secur32.lib",
+    ]
+
+    defines = [ "_CRT_NONSTDC_NO_DEPRECATE" ]
+    # deps += [ ":win32" ]
   }
 }
 

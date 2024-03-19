@@ -52,9 +52,11 @@ class AudioDeviceGeneric {
 
   // Device selection
   virtual int32_t SetPlayoutDevice(uint16_t index) = 0;
+  virtual int32_t SetPlayoutDevice(std::string deviceId) = 0;
   virtual int32_t SetPlayoutDevice(
       AudioDeviceModule::WindowsDeviceType device) = 0;
   virtual int32_t SetRecordingDevice(uint16_t index) = 0;
+  virtual int32_t SetRecordingDevice(std::string deviceId) = 0;
   virtual int32_t SetRecordingDevice(
       AudioDeviceModule::WindowsDeviceType device) = 0;
 

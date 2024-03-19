@@ -65,6 +65,8 @@ void MatchedFilterCore_AccumulatedError_AVX2(
     __m256 x2_sum_256 = _mm256_set1_ps(0);
     __m256 x2_sum_256_8 = _mm256_set1_ps(0);
     __m128 e_128;
+    float* e_128f = reinterpret_cast<float*>(&e_128);
+    float* s_inst_hadd_256f = reinterpret_cast<float*>(&s_inst_hadd_256);
     float x2_sum = 0.0f;
     float s_acum = 0;
     const int limit_by_16 = h_size >> 4;
@@ -81,14 +83,14 @@ void MatchedFilterCore_AccumulatedError_AVX2(
       s_inst_256_8 = _mm256_mul_ps(h_k_8, x_k_8);
       s_inst_hadd_256 = _mm256_hadd_ps(s_inst_256, s_inst_256_8);
       s_inst_hadd_256 = _mm256_hadd_ps(s_inst_hadd_256, s_inst_hadd_256);
-      s_acum += s_inst_hadd_256[0];
-      e_128[0] = s_acum - y[i];
-      s_acum += s_inst_hadd_256[4];
-      e_128[1] = s_acum - y[i];
-      s_acum += s_inst_hadd_256[1];
-      e_128[2] = s_acum - y[i];
-      s_acum += s_inst_hadd_256[5];
-      e_128[3] = s_acum - y[i];
+      s_acum += s_inst_hadd_256f[0];
+      e_128f[0] = s_acum - y[i];
+      s_acum += s_inst_hadd_256f[4];
+      e_128f[1] = s_acum - y[i];
+      s_acum += s_inst_hadd_256f[1];
+      e_128f[2] = s_acum - y[i];
+      s_acum += s_inst_hadd_256f[5];
+      e_128f[3] = s_acum - y[i];
 
       __m128 accumulated_error = _mm_load_ps(a_p);
       accumulated_error = _mm_fmadd_ps(e_128, e_128, accumulated_error);
@@ -209,8 +211,9 @@ void MatchedFilterCore_AVX2(size_t x_start_index,
     x2_sum_256 = _mm256_add_ps(x2_sum_256, x2_sum_256_8);
     s_256 = _mm256_add_ps(s_256, s_256_8);
     __m128 sum = hsum_ab(x2_sum_256, s_256);
-    x2_sum += sum[0];
-    s += sum[1];
+    float* sumf = reinterpret_cast<float*>(&sum);
+    x2_sum += sumf[0];
+    s += sumf[1];
 
     // Compute the matched filter error.
     float e = y[i] - s;

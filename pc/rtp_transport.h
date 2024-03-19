@@ -88,6 +88,9 @@ class RtpTransport : public RtpTransportInternal {
 
   bool UnregisterRtpDemuxerSink(RtpPacketSinkInterface* sink) override;
 
+  virtual void ProcessRtpPacket(webrtc::RtpPacketReceived const& packet,
+                                bool isUnresolved) {}
+
  protected:
   // These methods will be used in the subclasses.
   void DemuxPacket(rtc::CopyOnWriteBuffer packet, int64_t packet_time_us);
