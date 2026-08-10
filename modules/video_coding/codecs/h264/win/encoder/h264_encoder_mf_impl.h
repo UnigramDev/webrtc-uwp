@@ -85,24 +85,24 @@ class H264EncoderMFImpl : public VideoEncoder, public IH264EncodingCallback {
   UINT32 currentBitrateBps_ {};
   UINT32 currentFps_ {};
   */
-  UINT32 max_bitrate_;
+  UINT32 max_bitrate_{};
 
-  UINT32 width_;
-  UINT32 height_;
-  UINT32 frame_rate_;
-  UINT32 target_bps_;
-  UINT32 max_qp_;
-  VideoCodecMode mode_;
+  UINT32 width_{};
+  UINT32 height_{};
+  UINT32 frame_rate_{};
+  UINT32 target_bps_{};
+  UINT32 max_qp_{};
+  VideoCodecMode mode_{};
   // H.264 specifc parameters
-  bool frame_dropping_on_;
-  int key_frame_interval_;
+  bool frame_dropping_on_{};
+  int key_frame_interval_{};
 
   int64_t last_rate_change_time_rtc_ms{};
   bool rate_change_requested_{};
 
   // Values to use as soon as the min interval between rate changes has passed
-  UINT32 next_frame_rate_;
-  UINT32 next_target_bps_;
+  UINT32 next_frame_rate_{};
+  UINT32 next_target_bps_{};
 
   struct CachedFrameAttributes {
     uint32_t timestamp;
