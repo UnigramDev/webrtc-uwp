@@ -25,6 +25,7 @@
 #include <wrl/wrappers/corewrappers.h>
 
 #include <memory>
+#include <new>
 
 #include "common_audio/resampler/include/push_resampler.h"
 #include "modules/audio_device/audio_device_config.h"
@@ -936,8 +937,12 @@ struct CaptureDeviceInternal
     //
     UINT32 syncBufferSize;
     syncBufferSize = 2 * (bufferLength * _audioFrameSize);
-    syncBuffer = new BYTE[syncBufferSize];
+    // nothrow so the check below is real: plain new terminates on failure with
+    // exceptions disabled, and this runs on the capture thread of a process
+    // that may already be short of memory.
+    syncBuffer = new (std::nothrow) BYTE[syncBufferSize];
     if (syncBuffer == nullptr) {
+      RTC_LOG(LS_ERROR) << "failed to allocate the capture sync buffer";
       return (DWORD)E_POINTER;
     }
     RTC_LOG(LS_VERBOSE) << "[CAPT] size of sync buffer  : " << syncBufferSize
