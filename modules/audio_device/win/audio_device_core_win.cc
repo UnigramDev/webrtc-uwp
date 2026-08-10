@@ -26,6 +26,7 @@
 
 #include <memory>
 
+#include "common_audio/resampler/include/push_resampler.h"
 #include "modules/audio_device/audio_device_config.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/platform_thread.h"
@@ -368,7 +369,7 @@ struct DeviceHelper {
 
   int32_t SetDevice(std::string deviceId) {
     if (!deviceId.size()) {
-      return SetDevice(webrtc::AudioDeviceModule::kDefaultCommunicationDevice);
+      return SetDevice(webrtc::AudioDeviceModule::kDefaultDevice);
     }
 
     HRESULT hr;
@@ -391,10 +392,8 @@ struct DeviceHelper {
     _usingDeviceIndex = false;
 
   Cleanup:
-    return SUCCEEDED(hr)
-               ? 0
-               : SetDevice(
-                     webrtc::AudioDeviceModule::kDefaultCommunicationDevice);
+    return SUCCEEDED(hr) ? 0
+                         : SetDevice(webrtc::AudioDeviceModule::kDefaultDevice);
   }
 
   int32_t SetDevice(
@@ -405,19 +404,19 @@ struct DeviceHelper {
     HString audio_device_id;
     unsigned int audio_device_id_len;
     AudioDeviceRole audioDeviceRole;
+    audioDeviceRole = AudioDeviceRole::AudioDeviceRole_Default;
+    // switch (windowsDeviceType) {
+    //   case webrtc::AudioDeviceModule::kDefaultCommunicationDevice:
+    //     audioDeviceRole = AudioDeviceRole::AudioDeviceRole_Communications;
+    //     break;
 
-    switch (windowsDeviceType) {
-      case webrtc::AudioDeviceModule::kDefaultCommunicationDevice:
-        audioDeviceRole = AudioDeviceRole::AudioDeviceRole_Communications;
-        break;
+    //  case webrtc::AudioDeviceModule::kDefaultDevice:
+    //    audioDeviceRole = AudioDeviceRole::AudioDeviceRole_Default;
+    //    break;
 
-      case webrtc::AudioDeviceModule::kDefaultDevice:
-        audioDeviceRole = AudioDeviceRole::AudioDeviceRole_Default;
-        break;
-
-      default:
-        return -1;
-    }
+    //  default:
+    //    return -1;
+    //}
 
     THR(GetActivationFactory(
         HStringReference(RuntimeClass_Windows_Media_Devices_MediaDevice).Get(),
@@ -585,7 +584,11 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
     {
       AudioClientProperties properties = {};
       properties.cbSize = sizeof(AudioClientProperties);
-      properties.eCategory = AudioCategory_Communications;
+      if constexpr (DEVICE_CLASS == DeviceClass::DeviceClass_AudioCapture) {
+        properties.eCategory = AudioCategory_Communications;
+      } else {
+        properties.eCategory = AudioCategory_Other;
+      }
 
       HRESULT hr = _audioClient->SetClientProperties(&properties);
       if (FAILED(hr)) {
@@ -1200,8 +1203,7 @@ struct CaptureDeviceInternal
     Wfx.Samples.wValidBitsPerSample = Wfx.Format.wBitsPerSample;
     Wfx.SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
 
-    const int freqs[8] = {48000,  44100, 16000, 96000,
-                          192000, 32000, 24000, 8000};
+    const int freqs[] = {48000, 44100, 16000, 96000, 32000, 8000};
     hr = S_FALSE;
 
     // Iterate over frequencies and channels, in order of priority
@@ -1335,6 +1337,8 @@ struct CaptureDeviceInternal
     _TraceCOMError(hr);
     CoTaskMemFree(pWfxIn);
     CoTaskMemFree(pWfxClosestMatch);
+
+    _mixerInitialized = false;
     return -1;
   }
 
@@ -1368,6 +1372,9 @@ struct RenderDeviceInternal
   uint32_t _deviceBlockSize;
 
   uint16_t _channelsPrioList[2];
+
+  webrtc::PushResampler<int16_t> _resampler;
+  rtc::ZeroOnFreeBuffer<int16_t> _resamplerBuffer;
 
  public:
   uint32_t _sndCardDelay;
@@ -1531,17 +1538,17 @@ struct RenderDeviceInternal
         framesAvailable = bufferLength - padding;
 
         // Do we have 10 ms available in the render buffer?
-        if (framesAvailable < _blockSize) {
+        if (framesAvailable < _deviceBlockSize) {
           // Not enough space in render buffer to store next render packet.
           break;
         }
 
         // Write n*10ms buffers to the render buffer
-        const uint32_t n10msBuffers = (framesAvailable / _blockSize);
+        const uint32_t n10msBuffers = (framesAvailable / _deviceBlockSize);
         for (uint32_t n = 0; n < n10msBuffers; n++) {
           // Get pointer (i.e., grab the buffer) to next space in the shared
           // render buffer.
-          hr = _audioRenderClient->GetBuffer(_blockSize, &pData);
+          hr = _audioRenderClient->GetBuffer(_deviceBlockSize, &pData);
           EXIT_ON_ERROR(hr);
 
           if (_pAudioBuffer) {
@@ -1569,10 +1576,21 @@ struct RenderDeviceInternal
 
             // Get the actual (stored) data
             nSamples = _pAudioBuffer->GetPlayoutData((int8_t*)pData);
+
+            if (_resamplerBuffer.empty()) {
+              nSamples = _pAudioBuffer->GetPlayoutData((int8_t*)pData);
+            } else {
+              int16_t* buffer = new int16_t[_blockSize * _channels];
+              nSamples = _pAudioBuffer->GetPlayoutData(_resamplerBuffer.data());
+
+              _resampler.Resample(_resamplerBuffer.data(),
+                                  _blockSize * _channels, (int16_t*)pData,
+                                  _deviceBlockSize * _channels);
+            }
           }
 
           DWORD dwFlags(0);
-          hr = _audioRenderClient->ReleaseBuffer(_blockSize, dwFlags);
+          hr = _audioRenderClient->ReleaseBuffer(_deviceBlockSize, dwFlags);
           // See http://msdn.microsoft.com/en-us/library/dd316605(VS.85).aspx
           // for more details regarding AUDCLNT_E_DEVICE_INVALIDATED.
           EXIT_ON_ERROR(hr);
@@ -1688,8 +1706,7 @@ struct RenderDeviceInternal
     Wfx.wBitsPerSample = 16;
     Wfx.cbSize = 0;
 
-    const int freqs[8] = {48000,  44100, 16000, 96000,
-                          192000, 32000, 24000, 8000};
+    const int freqs[] = {48000, 44100, 16000, 96000, 32000, 8000};
     hr = S_FALSE;
 
     // Iterate over frequencies and channels, in order of priority
@@ -1728,6 +1745,26 @@ struct RenderDeviceInternal
       }
       if (hr == S_OK)
         break;
+    }
+
+    if (hr == S_FALSE && pWfxOut) {
+      Wfx.nChannels = pWfxOut->nChannels;
+      Wfx.nSamplesPerSec = pWfxOut->nSamplesPerSec;
+      Wfx.nBlockAlign = Wfx.nChannels * Wfx.wBitsPerSample / 8;
+      Wfx.nAvgBytesPerSec = Wfx.nSamplesPerSec * Wfx.nBlockAlign;
+
+      _channels = pWfxOut->nChannels;
+      _sampleRate = freqs[0];
+      _audioFrameSize = _channels * Wfx.wBitsPerSample / 8;
+      _blockSize = _sampleRate / 100;
+
+      _deviceSampleRate = Wfx.nSamplesPerSec;
+      _deviceBlockSize = Wfx.nSamplesPerSec / 100;
+
+      _resamplerBuffer.SetSize(_blockSize * _channels);
+      _resampler.InitializeIfNeeded(_sampleRate, _deviceSampleRate, _channels);
+    } else {
+      _resamplerBuffer.SetSize(0);
     }
 
     // TODO(andrew): what happens in the event of failure in the above loop?
@@ -1786,6 +1823,7 @@ struct RenderDeviceInternal
       // read by GetBufferSize() and it is 20ms on most machines.
       hnsBufferDuration = 30 * 10000;
     }
+
     hr = _audioClient->Initialize(
         AUDCLNT_SHAREMODE_SHARED,  // share Audio Engine with other applications
         AUDCLNT_STREAMFLAGS_EVENTCALLBACK,  // processing of the audio buffer by
@@ -1853,6 +1891,8 @@ struct RenderDeviceInternal
     _TraceCOMError(hr);
     CoTaskMemFree(pWfxOut);
     CoTaskMemFree(pWfxClosestMatch);
+
+    _mixerInitialized = false;
     return -1;
   }
 
