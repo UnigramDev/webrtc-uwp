@@ -442,7 +442,13 @@ HRESULT H264StreamSink::Shutdown() {
     spEventQueue_.Reset();
     spCurrentType_.Reset();
 
-    encodingCallback_ = nullptr;
+    {
+      // Written and read under cbCritSec_ everywhere else, and the pair that
+      // races is exactly this against an in-flight OnH264Encoded. Nesting is
+      // safe: the dispatch releases critSec_ before it takes cbCritSec_.
+      AutoLock cbLock(cbCritSec_);
+      encodingCallback_ = nullptr;
+    }
 
     isShutdown_ = true;
   }
