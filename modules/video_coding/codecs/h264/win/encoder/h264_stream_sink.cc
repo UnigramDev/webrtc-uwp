@@ -14,11 +14,12 @@
 #include <mfapi.h>
 #include <mfidl.h>
 #include "../utils/utils.h"
+// Needed for the definition, not just the name: the cast to IMFMediaSink below
+// has to know where that base sits within H264MediaSink.
+#include "modules/video_coding/codecs/h264/win/encoder/h264_media_sink.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
-
-class H264MediaSink;
 
 H264StreamSink::H264StreamSink()
   : dwIdentifier_((DWORD)-1)
@@ -45,7 +46,12 @@ HRESULT H264StreamSink::RuntimeClassInitialize(
   }
 
   if (SUCCEEDED(hr)) {
-    spSink_ = reinterpret_cast<IMFMediaSink*>(pParent);
+    // static_cast, not reinterpret_cast: H264MediaSink inherits several
+    // interfaces and IMFMediaSink is not the first, so the pointer needs the
+    // base offset applied. AddRef and Release happened to survive the bad cast
+    // because IUnknown occupies the first three slots of every COM vtable, but
+    // an IMFMediaSink call through it lands on the wrong method.
+    spSink_ = static_cast<IMFMediaSink*>(pParent);
     dwIdentifier_ = dwIdentifier;
   }
 
