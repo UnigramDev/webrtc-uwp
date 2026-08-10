@@ -477,16 +477,16 @@ HRESULT VideoCaptureWinRTInternal::FrameArrived(
   ComPtr<IMemoryBuffer> memory_buffer;
   ComPtr<IMemoryBufferReference> memory_buffer_reference;
   ComPtr<IMemoryBufferByteAccess> memory_buffer_byte_access;
-  BitmapPlaneDescription bitmap_plane_description_y;
-  BitmapPlaneDescription bitmap_plane_description_uv;
+  BitmapPlaneDescription bitmap_plane_description_y = {};
+  BitmapPlaneDescription bitmap_plane_description_uv = {};
   HString video_subtype;
-  uint8_t* bitmap_content;
-  uint32_t bitmap_capacity;
-  int32_t plane_count;
+  uint8_t* bitmap_content = nullptr;
+  uint32_t bitmap_capacity = 0;
+  int32_t plane_count = 0;
 
-  int32_t size_y;
-  int32_t stride_y;
-  int32_t stride_uv;
+  int32_t size_y = 0;
+  int32_t stride_y = 0;
+  int32_t stride_uv = 0;
 
   VideoCaptureCapability frameInfo;
 
@@ -558,9 +558,15 @@ HRESULT VideoCaptureWinRTInternal::FrameArrived(
             bitmap_buffer->GetPlaneDescription(1, &bitmap_plane_description_uv);
       }
 
-      size_y = bitmap_plane_description_uv.StartIndex;
-      stride_y = bitmap_plane_description_y.Stride;
-      stride_uv = bitmap_plane_description_uv.Stride;
+      // Only a two plane (NV12 style) layout has a UV descriptor. For anything else
+      // it is left zeroed rather than read unset: the UV plane then points at the
+      // start of the buffer and stays unread, because ConvertToI420 decides from the
+      // fourcc whether to touch it at all.
+      if (SUCCEEDED(hr)) {
+        size_y = bitmap_plane_description_uv.StartIndex;
+        stride_y = bitmap_plane_description_y.Stride;
+        stride_uv = bitmap_plane_description_uv.Stride;
+      }
 
       if (SUCCEEDED(hr)) {
         hr = bitmap_buffer.As(&memory_buffer);
