@@ -388,9 +388,14 @@ HRESULT CreateMediaCaptureInitializationSettings(
     }
   }
 
+  // Video only: nothing in this module reads audio from the MediaCapture — the
+  // frame readers are video sources and audio comes from the audio device
+  // module. Asking for audio made both capture and mere enumeration require
+  // microphone consent, so they failed for a user who had granted the camera
+  // alone.
   if (SUCCEEDED(hr)) {
     hr = init_settings->put_StreamingCaptureMode(
-        StreamingCaptureMode::StreamingCaptureMode_AudioAndVideo);
+        StreamingCaptureMode::StreamingCaptureMode_Video);
   }
 
   if (SUCCEEDED(hr)) {
