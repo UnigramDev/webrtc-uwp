@@ -468,6 +468,24 @@ bool VideoCaptureWinRTInternal::CaptureStarted() {
   return is_capturing;
 }
 
+namespace {
+
+// Releases a WinRT resource through IClosable when it supports it. Closing is
+// best effort: a frame that cannot be closed still has to let the rest go.
+template <typename T>
+void CloseIfPossible(const ComPtr<T>& value) {
+  if (!value) {
+    return;
+  }
+
+  ComPtr<IClosable> closable;
+  if (SUCCEEDED(value.As(&closable)) && closable) {
+    closable->Close();
+  }
+}
+
+}  // namespace
+
 HRESULT VideoCaptureWinRTInternal::FrameArrived(
     IMediaFrameReader* sender_no_ref,
     IMediaFrameArrivedEventArgs* args_no_ref) {
@@ -629,29 +647,12 @@ HRESULT VideoCaptureWinRTInternal::FrameArrived(
     }
   }
 
-  if (memory_buffer_reference) {
-    ComPtr<IClosable> closable;
-    memory_buffer_reference.As(&closable);
-    closable->Close();
-  }
-
-  if (bitmap_buffer) {
-    ComPtr<IClosable> closable;
-    bitmap_buffer.As(&closable);
-    closable->Close();
-  }
-
-  if (software_bitmap) {
-    ComPtr<IClosable> closable;
-    software_bitmap.As(&closable);
-    closable->Close();
-  }
-
-  if (media_frame_reference) {
-    ComPtr<IClosable> closable;
-    media_frame_reference.As(&closable);
-    closable->Close();
-  }
+  // Each As() can fail, and the Close() that followed dereferenced the result
+  // without checking it.
+  CloseIfPossible(memory_buffer_reference);
+  CloseIfPossible(bitmap_buffer);
+  CloseIfPossible(software_bitmap);
+  CloseIfPossible(media_frame_reference);
 
   return hr;
 }
