@@ -473,12 +473,18 @@ HRESULT H264StreamSink::OnDispatchWorkItem(IMFAsyncResult *pAsyncResult) {
 
     hr = pAsyncResult->GetState(&spState);
 
-    if (SUCCEEDED(hr)) {
-      ComPtr<IAsyncStreamSinkOperation> pOp;
-      spState.As(&pOp);
-      StreamOperation op;
-      pOp->GetOp(&op);
+    ComPtr<IAsyncStreamSinkOperation> pOp;
+    StreamOperation op = Op_Count;
 
+    if (SUCCEEDED(hr)) {
+      hr = spState.As(&pOp);
+    }
+
+    if (SUCCEEDED(hr)) {
+      hr = pOp->GetOp(&op);
+    }
+
+    if (SUCCEEDED(hr)) {
       switch (op) {
       case OpStart:
         hr = QueueEvent(MEStreamSinkStarted, GUID_NULL, S_OK, nullptr);
