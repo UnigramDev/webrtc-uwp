@@ -277,7 +277,11 @@ VideoType ToVideoType(_In_ const HString& sub_type) {
   const wchar_t* video_type = sub_type.GetRawBuffer(&cchCount);
   VideoType converted_type = VideoType::kUnknown;
 
-  if (cchCount < 4 || cchCount > 8) {
+  // No upper bound: four of the entries below are 38 character GUID subtypes,
+  // and an upper limit of 8 made them unreachable. wcsncmp stops at the first
+  // difference, including the table entry's terminator, so comparing more
+  // characters than a short entry holds is safe.
+  if (cchCount < 4) {
     return VideoType::kUnknown;
   }
 
