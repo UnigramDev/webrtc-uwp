@@ -494,10 +494,19 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
 
  public:
   virtual ~AudioDeviceHelper() {
-    CloseHandle(_hSamplesReadyEvent);
-    CloseHandle(_hThread);
-    CloseHandle(_hStartedEvent);
-    CloseHandle(_hShutdownEvent);
+    // _hThread is null until a transport starts and again after it stops, and
+    // the events are null if CreateEvent failed. CloseHandle(nullptr) is an
+    // invalid-handle call, which is fatal when strict handle checking is on.
+    CloseIfValid(_hSamplesReadyEvent);
+    CloseIfValid(_hThread);
+    CloseIfValid(_hStartedEvent);
+    CloseIfValid(_hShutdownEvent);
+  }
+
+  static void CloseIfValid(HANDLE handle) {
+    if (handle != nullptr && handle != INVALID_HANDLE_VALUE) {
+      CloseHandle(handle);
+    }
   }
 
   virtual void AttachAudioBuffer(webrtc::AudioDeviceBuffer* audioBuffer) {
