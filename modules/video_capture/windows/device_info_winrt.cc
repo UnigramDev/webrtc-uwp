@@ -420,12 +420,19 @@ DeviceInfoWinRTInternal::FillVideoCaptureCapabilityFromDeviceWithoutProfiles(
         device_id, media_device_controller, device_caps);
   }
 
-  if (SUCCEEDED(hr)) {
-    hr = media_capture.As(&media_capture_closable);
-  }
+  // The device stays open until Close, so this has to run even when one of the
+  // steps above failed — otherwise a failed enumeration leaves the camera held
+  // and the in-use indicator lit. A close failure must not mask the real error.
+  if (media_capture) {
+    HRESULT hr_close = media_capture.As(&media_capture_closable);
 
-  if (SUCCEEDED(hr)) {
-    hr = media_capture_closable->Close();
+    if (SUCCEEDED(hr_close)) {
+      hr_close = media_capture_closable->Close();
+    }
+
+    if (SUCCEEDED(hr)) {
+      hr = hr_close;
+    }
   }
 
   return hr;
