@@ -712,7 +712,10 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
   //
 
   virtual int32_t VolumeIsAvailable(bool& available) const {
-    if (!TransportIsInitialized()) {
+    // Only the render side creates _simpleAudioVolume, so on a capture device
+    // it stays null however initialised the transport is. The mute methods
+    // below already test it.
+    if (!TransportIsInitialized() || !_simpleAudioVolume) {
       return -1;
     }
 
@@ -724,7 +727,7 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
   }
 
   virtual int32_t SetVolume(uint32_t volume) {
-    if (!TransportIsInitialized()) {
+    if (!TransportIsInitialized() || !_simpleAudioVolume) {
       return -1;
     }
 
@@ -742,7 +745,7 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
   }
 
   virtual int32_t Volume(uint32_t& volume) const {
-    if (!TransportIsInitialized()) {
+    if (!TransportIsInitialized() || !_simpleAudioVolume) {
       return -1;
     }
 
