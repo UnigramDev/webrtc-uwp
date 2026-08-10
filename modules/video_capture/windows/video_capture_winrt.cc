@@ -710,10 +710,13 @@ int32_t VideoCaptureWinRT::SetDeviceUniqueId(
 }
 
 int32_t VideoCaptureWinRT::Init(const char* device_unique_id_UTF8) {
-  // Gets hstring from deviceId utf8
+  // Only used to reject an id that is not valid UTF-8; the wide form itself is
+  // not needed here. The last argument is a count of wide characters, not
+  // bytes, and sizeof claimed twice the real capacity.
   wchar_t device_id_w[kVideoCaptureUniqueNameLength];
-  int device_id_w_length = MultiByteToWideChar(
-      CP_UTF8, 0, device_unique_id_UTF8, -1, device_id_w, sizeof(device_id_w));
+  int device_id_w_length =
+      MultiByteToWideChar(CP_UTF8, 0, device_unique_id_UTF8, -1, device_id_w,
+                          ARRAYSIZE(device_id_w));
   if (device_id_w_length == 0) {
     return -1;
   }
