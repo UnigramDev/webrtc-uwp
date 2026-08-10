@@ -88,6 +88,12 @@ UINT32 HeightToEncode(UINT32 height) {
       return height & ~15;
     case kFrameHeightPad:
       return (height + 15) & ~15;
+    default:
+      // The mode is a plain int set from outside this module, so it is not
+      // necessarily one of the three above. Falling off the end of a non-void
+      // function would hand back whatever happened to be in the return register,
+      // and that value is used as an encode height.
+      return height;
   }
 }
 }  // namespace
