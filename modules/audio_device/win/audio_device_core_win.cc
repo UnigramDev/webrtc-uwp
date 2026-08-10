@@ -1294,14 +1294,6 @@ struct CaptureDeviceInternal
       RTC_LOG(LS_VERBOSE) << "_recAudioFrameSize: " << _audioFrameSize;
       RTC_LOG(LS_VERBOSE) << "_recBlockSize     : " << _blockSize;
       RTC_LOG(LS_VERBOSE) << "_recChannels      : " << _channels;
-    } else {
-      // Nothing above matched, so the frame size, sample rate and block size
-      // were never assigned and _blockSize is still 0. Initialize can still
-      // succeed in shared mode with a convertible format, and the capture
-      // thread then divides by _blockSize.
-      RTC_LOG(LS_ERROR) << "no supported capturing format was found";
-      hr = E_FAIL;
-      goto Exit;
     }
 
     // Create a capturing stream.
@@ -1834,12 +1826,6 @@ struct RenderDeviceInternal
       RTC_LOG(LS_VERBOSE) << "_playAudioFrameSize: " << _audioFrameSize;
       RTC_LOG(LS_VERBOSE) << "_playBlockSize     : " << _blockSize;
       RTC_LOG(LS_VERBOSE) << "_playChannels      : " << _channels;
-    } else {
-      // As on the capture side: without a match the block size stays 0 and the
-      // render path divides by it.
-      RTC_LOG(LS_ERROR) << "no supported rendering format was found";
-      hr = E_FAIL;
-      goto Exit;
     }
 
     // Create a rendering stream.
