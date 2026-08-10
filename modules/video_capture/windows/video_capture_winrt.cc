@@ -160,6 +160,17 @@ HRESULT VideoCaptureWinRTInternal::StartCapture(
   MediaFrameReaderStartStatus media_frame_reader_start_status;
   boolean has_current;
 
+  // VideoCaptureWinRT::StartCapture only stops a previous run when CaptureStarted()
+  // is true, and is_capturing is set at the very end of this function. An attempt that
+  // fails after the reader was assigned and FrameArrived attached therefore leaves both
+  // behind with is_capturing still false, and the next attempt would overwrite the
+  // reader and the token — orphaning a live handler that can no longer be removed.
+  if (media_frame_reader_) {
+    RTC_LOG(LS_WARNING) << "StartCapture warning: a previous reader is still "
+                           "attached, stopping it first";
+    StopCapture();
+  }
+
   if (SUCCEEDED(hr) && capability.media_capture_video_profile) {
     hr = capability.media_capture_video_profile->QueryInterface(
         video_profile.ReleaseAndGetAddressOf());
