@@ -691,7 +691,13 @@ int H264EncoderMFImpl::ReconfigureSinkWriter(UINT32 new_width,
       webrtc::MutexLock lock(&callbackCrit_);
       encodedCompleteCallback_ = tempCallback;
     }
-    InitWriter();
+    int res = InitWriter();
+    if (res != WEBRTC_VIDEO_CODEC_OK) {
+      // Reporting success here left the encoder with no sink writer and no
+      // indication that anything had gone wrong.
+      RTC_LOG(LS_ERROR) << "ReconfigureSinkWriter: InitWriter failed: " << res;
+      return res;
+    }
 
     last_rate_change_time_rtc_ms = rtc::TimeMillis();
   }
