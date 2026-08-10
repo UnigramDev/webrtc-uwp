@@ -2101,7 +2101,10 @@ int32_t AudioDeviceWindowsCore::Terminate() {
   }
 
   delete _internal->_pCaptureDeviceHelper;
+  _internal->_pCaptureDeviceHelper = nullptr;
+
   delete _internal->_pRenderDeviceHelper;
+  _internal->_pRenderDeviceHelper = nullptr;
 
   _internal->_initialized = false;
 
