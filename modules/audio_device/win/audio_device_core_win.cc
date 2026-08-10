@@ -1858,8 +1858,10 @@ struct RenderDeviceInternal
     // buffer.
     // ****************************************************************************
     //
-    REFERENCE_TIME hnsBufferDuration =
-        0;  // ask for minimum buffer size (default)
+    // Declared and assigned separately so the error paths above may goto Exit,
+    // as the other locals in this function already are.
+    REFERENCE_TIME hnsBufferDuration;
+    hnsBufferDuration = 0;  // ask for minimum buffer size (default)
     if (_deviceSampleRate == 44100) {
       // Ask for a larger buffer size (30ms) when using 44.1kHz as render rate.
       // There seems to be a larger risk of underruns for 44.1 compared
