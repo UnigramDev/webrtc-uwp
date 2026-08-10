@@ -218,9 +218,14 @@ IFACEMETHODIMP H264MediaSink::Shutdown() {
 
   HRESULT hr = CheckShutdown();
 
-  if (SUCCEEDED(hr) && outputStream_ != nullptr) {
-    outputStream_->Shutdown();
-    outputStream_.Reset();
+  if (SUCCEEDED(hr)) {
+    // A sink that never took a stream sink still has to end up shut down: leaving
+    // the flag clear let every later call through CheckShutdown as if the sink
+    // were still live, while the caller was told the shutdown had succeeded.
+    if (outputStream_ != nullptr) {
+      outputStream_->Shutdown();
+      outputStream_.Reset();
+    }
 
     spClock_.Reset();
 
