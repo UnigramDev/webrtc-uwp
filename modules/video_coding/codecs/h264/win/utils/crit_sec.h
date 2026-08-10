@@ -22,6 +22,11 @@ class CritSec {
 
   ~CritSec() { DeleteCriticalSection(&m_criticalSection); }
 
+  // Copying would leave two owners of one section, and the second destructor
+  // would delete it again.
+  CritSec(const CritSec&) = delete;
+  CritSec& operator=(const CritSec&) = delete;
+
   _Acquires_lock_(m_criticalSection) void Lock() {
     EnterCriticalSection(&m_criticalSection);
   }
@@ -52,6 +57,10 @@ class AutoLock {
   _Releases_lock_(m_pCriticalSection) ~AutoLock() {
     m_pCriticalSection->Unlock();
   }
+
+  // A copy would unlock the same section twice.
+  AutoLock(const AutoLock&) = delete;
+  AutoLock& operator=(const AutoLock&) = delete;
 };
 
 #endif  // MODULES_VIDEO_CODING_CODECS_H264_WIN_UTILS_CRITSEC_H_
