@@ -242,6 +242,12 @@ IFACEMETHODIMP H264MediaSink::OnClockStart(
 
   HRESULT hr = CheckShutdown();
 
+  // CheckShutdown only reports the flag; the stream sink is absent until
+  // AddStreamSink has run, and the clock can be driven before that.
+  if (SUCCEEDED(hr) && outputStream_ == nullptr) {
+    hr = MF_E_INVALIDREQUEST;
+  }
+
   if (SUCCEEDED(hr)) {
     hr = outputStream_->Start(llClockStartOffset);
   }
@@ -254,6 +260,10 @@ IFACEMETHODIMP H264MediaSink::OnClockStop(
   AutoLock lock(critSec_);
 
   HRESULT hr = CheckShutdown();
+
+  if (SUCCEEDED(hr) && outputStream_ == nullptr) {
+    hr = MF_E_INVALIDREQUEST;
+  }
 
   if (SUCCEEDED(hr)) {
     hr = outputStream_->Stop();
@@ -280,6 +290,12 @@ IFACEMETHODIMP H264MediaSink::OnClockSetRate(
 
 HRESULT H264MediaSink::RegisterEncodingCallback(
   IH264EncodingCallback *callback) {
+  // The encoder calls this straight after AddStreamSink, so a failure there
+  // arrives here as a null stream sink.
+  if (outputStream_ == nullptr) {
+    return MF_E_INVALIDREQUEST;
+  }
+
   return outputStream_->RegisterEncodingCallback(callback);
 }
 
