@@ -607,7 +607,12 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
   // Audio transport initialization
   //
 
-  virtual int32_t TransportIsAvailable(bool& available) { return true; }
+  virtual int32_t TransportIsAvailable(bool& available) {
+    // Returning `true` here meant returning 1, which is a failure in this API,
+    // while leaving the caller's flag untouched.
+    available = true;
+    return 0;
+  }
 
   virtual int32_t InitTransport() = 0;
 
