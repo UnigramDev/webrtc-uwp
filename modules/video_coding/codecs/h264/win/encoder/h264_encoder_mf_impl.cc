@@ -538,7 +538,10 @@ void H264EncoderMFImpl::OnH264Encoded(ComPtr<IMFSample> sample) {
     // Scan for and create mark all fragments.
     // RTPFragmentationHeader fragmentationHeader;
     uint32_t fragIdx = 0;
-    for (uint32_t i = 0; i < sendBuffer.size() - 5; ++i) {
+    // size() is unsigned: subtracting 5 from a shorter buffer wraps the bound and
+    // walks the scan off the end. Empty samples are already rejected above, but
+    // one to four bytes reaches here.
+    for (size_t i = 0; i + 5 < sendBuffer.size(); ++i) {
       byte* ptr = sendBuffer.data() + i;
       int prefixLengthFound = 0;
       if (ptr[0] == 0x00 && ptr[1] == 0x00 && ptr[2] == 0x00 &&
