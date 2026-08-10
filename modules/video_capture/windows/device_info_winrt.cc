@@ -717,8 +717,11 @@ int32_t DeviceInfoWinRT::CreateCapabilityMap(
                    << device_unique_id_utf8;
 
   wchar_t deviceIdW[kVideoCaptureUniqueNameLength];
-  int device_id_w_length = ::MultiByteToWideChar(
-      CP_UTF8, 0, device_unique_id_utf8, -1, deviceIdW, sizeof(deviceIdW));
+  // The last argument is a count of wide characters, not bytes; sizeof claimed
+  // the buffer was twice its real capacity.
+  int device_id_w_length =
+      ::MultiByteToWideChar(CP_UTF8, 0, device_unique_id_utf8, -1, deviceIdW,
+                            ARRAYSIZE(deviceIdW));
   if (device_id_w_length == 0) {
     RTC_LOG(LS_INFO) << "Failed to convert Device ID from UTF8, error = "
                      << GetLastError();
@@ -731,9 +734,16 @@ int32_t DeviceInfoWinRT::CreateCapabilityMap(
   }
 
   // Store the new used device name
+  // realloc returns null on failure, leaving the old block allocated; writing
+  // through the result without checking turns a failed allocation into a crash.
+  char* renamed = reinterpret_cast<char*>(
+      realloc(_lastUsedDeviceName, device_unique_id_UTF8_length + 1));
+  if (renamed == nullptr) {
+    return -1;
+  }
+
   _lastUsedDeviceNameLength = device_unique_id_UTF8_length;
-  _lastUsedDeviceName = reinterpret_cast<char*>(
-      realloc(_lastUsedDeviceName, _lastUsedDeviceNameLength + 1));
+  _lastUsedDeviceName = renamed;
   memcpy(_lastUsedDeviceName, device_unique_id_utf8,
          _lastUsedDeviceNameLength + 1);
 
