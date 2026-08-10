@@ -300,7 +300,7 @@ struct DeviceHelper {
       size_t length =
           std::min(nameUFT8.size(),
                    static_cast<size_t>(webrtc::kAdmMaxDeviceNameSize - 1));
-      std::copy_n(nameUFT8.begin(), length, guid);
+      std::copy_n(nameUFT8.begin(), length, name);
       name[length] = '\0';
     }
 
