@@ -28,6 +28,14 @@ class SampleAttributeQueue {
 
   void push(uint64_t id, const T& t) {
     webrtc::MutexLock lock(&_crit);
+
+    // Bounded so that a run of ids which never match cannot leave the queue
+    // permanently full. The encoder admits a new frame only while at most two
+    // entries are outstanding, so this is far above normal occupancy.
+    while (_attributes.size() >= kMaxEntries) {
+      _attributes.pop();
+    }
+
     _attributes.push(std::make_pair(id, t));
   }
 
@@ -36,8 +44,11 @@ class SampleAttributeQueue {
     while (!_attributes.empty()) {
       auto entry = _attributes.front();
       if (entry.first > id) {
-        outT = entry.second;
-        return true;
+        // Everything held is newer than the id asked for, so this frame's
+        // attributes are gone. Reporting success handed back a different
+        // frame's values and removed nothing, which left the queue full and
+        // stopped the encoder from accepting any further frames.
+        return false;
       } else if (entry.first == id) {
         outT = entry.second;
         _attributes.pop();
@@ -62,6 +73,8 @@ class SampleAttributeQueue {
   }
 
  private:
+  static constexpr size_t kMaxEntries = 16;
+
   webrtc::Mutex _crit;
   std::queue<std::pair<uint64_t, const T>> _attributes;
 };
