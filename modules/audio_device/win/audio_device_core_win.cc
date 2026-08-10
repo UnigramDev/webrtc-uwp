@@ -1168,6 +1168,13 @@ struct CaptureDeviceInternal
       return -1;
     }
 
+    // InitMixer is what creates the audio client, and its failure above is only
+    // a warning, so the client can still be absent here.
+    if (_audioClient == nullptr) {
+      RTC_LOG(LS_ERROR) << "InitTransport() failed: no audio client";
+      return -1;
+    }
+
     HRESULT hr = S_OK;
     WAVEFORMATEX* pWfxIn = nullptr;
     WAVEFORMATEXTENSIBLE Wfx = WAVEFORMATEXTENSIBLE();
@@ -1671,6 +1678,13 @@ struct RenderDeviceInternal
 
     // Ensure that the updated rendering endpoint device is valid
     if (GetDevice() == nullptr) {
+      return -1;
+    }
+
+    // InitMixer is what creates the audio client, and its failure above is only
+    // a warning, so the client can still be absent here.
+    if (_audioClient == nullptr) {
+      RTC_LOG(LS_ERROR) << "InitTransport() failed: no audio client";
       return -1;
     }
 
