@@ -16,6 +16,7 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 
+#include <atomic>
 #include <vector>
 
 #include "../utils/sample_attribute_queue.h"
@@ -75,7 +76,7 @@ class H264EncoderMFImpl : public VideoEncoder, public IH264EncodingCallback {
   LONGLONG startTime_{};
   LONGLONG lastTimestampHns_{};
   bool firstFrame_{true};
-  int framePendingCount_{};
+  std::atomic<int> framePendingCount_{};
   DWORD frameCount_{};
   bool lastFrameDropped_{};
   // These fields are never used
