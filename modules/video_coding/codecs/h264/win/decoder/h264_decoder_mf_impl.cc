@@ -69,7 +69,9 @@ HRESULT ConfigureOutputMediaType(ComPtr<IMFTransform> decoder,
 
     if (cur_type == media_type) {
       hr = decoder->SetOutputType(0, output_media.Get(), 0);
-      ON_SUCCEEDED(*type_found = true);
+      if (SUCCEEDED(hr)) {
+        *type_found = true;
+      }
       return hr;
     }
 
