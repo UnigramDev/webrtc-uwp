@@ -11,23 +11,29 @@
 #ifndef MODULES_VIDEO_CODING_CODECS_H264_WIN_UTILS_UTILS_H_
 #define MODULES_VIDEO_CODING_CODECS_H264_WIN_UTILS_UTILS_H_
 
+// Wrapped in do/while so the macro is one statement. Without it,
+// `if (c) ON_SUCCEEDED(x); else y;` binds the else to the macro's own if.
 #ifdef _DEBUG
-#define ON_SUCCEEDED(act)                      \
-  if (SUCCEEDED(hr)) {                         \
-    hr = (act);                                \
-    if (FAILED(hr)) {                          \
-      RTC_LOG(LS_WARNING) << "ERROR:" << #act; \
-      __debugbreak();                          \
-    }                                          \
-  }
+#define ON_SUCCEEDED(act)                        \
+  do {                                           \
+    if (SUCCEEDED(hr)) {                         \
+      hr = (act);                                \
+      if (FAILED(hr)) {                          \
+        RTC_LOG(LS_WARNING) << "ERROR:" << #act; \
+        __debugbreak();                          \
+      }                                          \
+    }                                            \
+  } while (0)
 #else
-#define ON_SUCCEEDED(act)                      \
-  if (SUCCEEDED(hr)) {                         \
-    hr = (act);                                \
-    if (FAILED(hr)) {                          \
-      RTC_LOG(LS_WARNING) << "ERROR:" << #act; \
-    }                                          \
-  }
+#define ON_SUCCEEDED(act)                        \
+  do {                                           \
+    if (SUCCEEDED(hr)) {                         \
+      hr = (act);                                \
+      if (FAILED(hr)) {                          \
+        RTC_LOG(LS_WARNING) << "ERROR:" << #act; \
+      }                                          \
+    }                                            \
+  } while (0)
 #endif
 
 #endif  // MODULES_VIDEO_CODING_CODECS_H264_WIN_UTILS_UTILS_H_
