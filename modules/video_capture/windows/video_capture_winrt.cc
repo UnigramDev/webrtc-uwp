@@ -498,7 +498,13 @@ HRESULT VideoCaptureWinRTInternal::FrameArrived(
     hr = media_frame_reference->get_Format(&media_frame_format);
 
     if (SUCCEEDED(hr)) {
-      media_frame_format->get_VideoFormat(&video_media_frame_format);
+      hr = media_frame_format->get_VideoFormat(&video_media_frame_format);
+    }
+
+    // Sources that are not video (depth, infrared) report success here and hand back
+    // a null format, which every read below dereferences.
+    if (SUCCEEDED(hr)) {
+      hr = video_media_frame_format ? S_OK : E_FAIL;
     }
 
     if (SUCCEEDED(hr)) {
