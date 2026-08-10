@@ -2061,10 +2061,21 @@ AudioDeviceGeneric::InitStatus AudioDeviceWindowsCore::Init() {
     return InitStatus::OTHER_ERROR;
   }
 
+  // nothrow hands back null instead of throwing, so it has to be checked —
+  // the capture helper is constructed from a member of the render one.
   _internal->_pRenderDeviceHelper =
       new (std::nothrow) RenderDeviceInternal(&_internal->_critSect);
+  if (_internal->_pRenderDeviceHelper == nullptr) {
+    return InitStatus::OTHER_ERROR;
+  }
+
   _internal->_pCaptureDeviceHelper = new (std::nothrow) CaptureDeviceInternal(
       &_internal->_critSect, &_internal->_pRenderDeviceHelper->_sndCardDelay);
+  if (_internal->_pCaptureDeviceHelper == nullptr) {
+    delete _internal->_pRenderDeviceHelper;
+    _internal->_pRenderDeviceHelper = nullptr;
+    return InitStatus::OTHER_ERROR;
+  }
 
   if (_internal->_pAudioBuffer != nullptr) {
     _internal->_pRenderDeviceHelper->AttachAudioBuffer(
