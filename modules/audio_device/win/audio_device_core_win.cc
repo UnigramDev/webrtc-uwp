@@ -376,10 +376,11 @@ struct DeviceHelper {
     ComPtr<IAsyncOperation<DeviceInformation*>> async_operation;
 
     std::wstring device_id = rtc::ToUtf16(deviceId);
-    HSTRING audio_device_id =
-        HStringReference(device_id.data(), device_id.size()).Get();
+    // The reference owns the header the HSTRING points at, so it has to outlive
+    // every use of it rather than being a temporary in the initialiser.
+    HStringReference audio_device_id(device_id.data(), device_id.size());
 
-    THR(device_info_statics_->CreateFromIdAsync(audio_device_id,
+    THR(device_info_statics_->CreateFromIdAsync(audio_device_id.Get(),
                                                 &async_operation));
 
     // Block and suspend thread until the async operation finishes or timeouts.
