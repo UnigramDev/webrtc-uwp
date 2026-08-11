@@ -32,6 +32,7 @@
 #include "libyuv/convert.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/string_utils.h"
 #include "rtc_base/time_utils.h"
 #include "rtc_base/win32.h"
 
@@ -68,14 +69,18 @@ static constexpr float kMinRateVariation = 0.1f;
 //////////////////////////////////////////
 
 H264EncoderMFImpl::H264EncoderMFImpl() {
-  HRESULT hr = S_OK;
-  ON_SUCCEEDED(MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET));
+  HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET);
+  mfStarted_ = SUCCEEDED(hr);
+  if (!mfStarted_) {
+    RTC_LOG(LS_ERROR) << "MFStartup failed: 0x" << rtc::ToHex(hr);
+  }
 }
 
 H264EncoderMFImpl::~H264EncoderMFImpl() {
-  HRESULT hr = S_OK;
   Release();
-  ON_SUCCEEDED(MFShutdown());
+  if (mfStarted_) {
+    MFShutdown();
+  }
 }
 
 namespace {
