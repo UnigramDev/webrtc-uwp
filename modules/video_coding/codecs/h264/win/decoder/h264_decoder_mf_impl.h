@@ -50,6 +50,10 @@ class H264DecoderMFImpl : public H264Decoder {
   Microsoft::WRL::ComPtr<IMFTransform> decoder_;
   VideoFrameBufferPool buffer_pool_;
 
+  // MFStartup/MFShutdown are refcounted per process, so shutting down after a
+  // failed startup decrements someone else's reference and tears Media
+  // Foundation down under whichever encoder or decoder is still using it.
+  bool mf_started_ = false;
   bool inited_ = false;
   bool require_keyframe_ = true;
   uint32_t first_frame_rtp_ = 0;

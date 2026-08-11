@@ -68,6 +68,10 @@ class H264EncoderMFImpl : public VideoEncoder, public IH264EncodingCallback {
  private:
   webrtc::Mutex crit_;
   webrtc::Mutex callbackCrit_;
+  // MFStartup/MFShutdown are refcounted per process, so shutting down after a
+  // failed startup decrements someone else's reference and tears Media
+  // Foundation down under whichever encoder or decoder is still using it.
+  bool mfStarted_{};
   bool inited_{};
   Microsoft::WRL::ComPtr<IMFSinkWriter> sinkWriter_;
   Microsoft::WRL::ComPtr<H264MediaSink> mediaSink_;

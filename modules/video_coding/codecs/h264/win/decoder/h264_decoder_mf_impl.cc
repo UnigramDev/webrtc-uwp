@@ -28,6 +28,7 @@
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/string_utils.h"
 
 using Microsoft::WRL::ComPtr;
 
@@ -38,15 +39,19 @@ H264DecoderMFImpl::H264DecoderMFImpl()
       width_(absl::nullopt),
       height_(absl::nullopt),
       decode_complete_callback_(nullptr) {
-  HRESULT hr = S_OK;
-  ON_SUCCEEDED(MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET));
+  HRESULT hr = MFStartup(MF_VERSION, MFSTARTUP_NOSOCKET);
+  mf_started_ = SUCCEEDED(hr);
+  if (!mf_started_) {
+    RTC_LOG(LS_ERROR) << "MFStartup failed: 0x" << rtc::ToHex(hr);
+  }
 }
 
 H264DecoderMFImpl::~H264DecoderMFImpl() {
   OutputDebugString(L"H264DecoderMFImpl::~H264DecoderMFImpl()\n");
-  HRESULT hr = S_OK;
   Release();
-  ON_SUCCEEDED(MFShutdown());
+  if (mf_started_) {
+    MFShutdown();
+  }
 }
 
 HRESULT ConfigureOutputMediaType(ComPtr<IMFTransform> decoder,
