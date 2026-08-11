@@ -244,12 +244,19 @@ int H264EncoderMFImpl::RegisterEncodeCompleteCallback(
 }
 
 int H264EncoderMFImpl::ReleaseWriter() {
-  // Use a temporary sink variable to prevent lock inversion
-  // between the shutdown call and OnH264Encoded() callback.
+  // Use temporary variables to prevent lock inversion between the finalize and
+  // shutdown calls and the OnH264Encoded() callback: both reach back into the
+  // pipeline, and OnH264Encoded takes callbackCrit_.
+  ComPtr<IMFSinkWriter> tmpSinkWriter;
   ComPtr<H264MediaSink> tmpMediaSink;
+  bool wasWriting = false;
 
   {
     webrtc::MutexLock lock(&crit_);
+    wasWriting = inited_;
+    if (sinkWriter_ != nullptr) {
+      tmpSinkWriter = sinkWriter_;
+    }
     sinkWriter_.Reset();
     if (mediaSink_ != nullptr) {
       tmpMediaSink = mediaSink_;
@@ -264,6 +271,20 @@ int H264EncoderMFImpl::ReleaseWriter() {
     webrtc::MutexLock callbackLock(&callbackCrit_);
     encodedCompleteCallback_ = nullptr;
   }
+
+  // Finalize before letting go of the writer, and before the sink is shut down
+  // from under it. Releasing a sink writer that is still writing leaves whatever
+  // the encoder MFT has queued running on the Media Foundation work queue, and
+  // a hardware MFT does its own asynchronous work there -- so the queued item
+  // can outlive both the pipeline and the MFShutdown() in our destructor.
+  // Finalize drains it synchronously instead.
+  if (wasWriting && tmpSinkWriter != nullptr) {
+    HRESULT hr = tmpSinkWriter->Finalize();
+    if (FAILED(hr)) {
+      RTC_LOG(LS_WARNING) << "Sink writer finalize failed: 0x" << rtc::ToHex(hr);
+    }
+  }
+  tmpSinkWriter.Reset();
 
   if (tmpMediaSink != nullptr) {
     tmpMediaSink->Shutdown();
