@@ -303,6 +303,15 @@ HRESULT H264DecoderMFImpl::FlushFrames(uint32_t rtp_timestamp,
       ON_SUCCEEDED(MFGetAttributeSize(output_type.Get(), MF_MT_FRAME_SIZE,
                                       &buffer_width, &buffer_height));
 
+      // Has to be checked here rather than with the rest below: output_type is
+      // null when the query failed, so the GetBlob call would dereference it,
+      // and buffer_width/buffer_height would still be uninitialised.
+      if (FAILED(hr)) {
+        RTC_LOG(LS_ERROR)
+            << "Decode failure: could not read the output frame size.";
+        return hr;
+      }
+
       // Query the visible area of the frame, which is the data that must be
       // returned to the caller. Sometimes this attribute is not present, and in
       // general this means that the frame size is not padded.
@@ -321,6 +330,18 @@ HRESULT H264DecoderMFImpl::FlushFrames(uint32_t rtp_timestamp,
       // Update cached values
       width_.emplace(width);
       height_.emplace(height);
+    }
+
+    // Everything below indexes into the decoder's output buffer using these,
+    // and they come from the decoder describing a stream a remote peer chose.
+    // The visible area has to sit inside the padded frame, or the conversion
+    // walks past the end of the buffer.
+    if (buffer_width == 0 || buffer_height == 0 || width == 0 || height == 0 ||
+        width > buffer_width || height > buffer_height) {
+      RTC_LOG(LS_ERROR) << "Decode failure: bad output frame size, visible "
+                        << width << "x" << height << " in padded "
+                        << buffer_width << "x" << buffer_height;
+      return MF_E_INVALIDMEDIATYPE;
     }
 
     // Create a new I420 buffer to pass to WebRTC
@@ -353,7 +374,22 @@ HRESULT H264DecoderMFImpl::FlushFrames(uint32_t rtp_timestamp,
       // luminance values are 8-bits each.
       const int src_stride_y = buffer_width;
       const int src_stride_uv = buffer_width;
-      const uint8_t* src_uv = src_data + (src_stride_y * buffer_height);
+
+      // The conversion reads a full Y plane and a half-height UV plane at a
+      // fixed offset, so the buffer has to be at least that large. Only the
+      // decoder says how big it is, and only "not empty" was checked before.
+      // Computed in 64-bit because the product of two UINT32s is not an int.
+      const uint64_t y_size = uint64_t{buffer_width} * buffer_height;
+      const uint64_t uv_size = uint64_t{buffer_width} * ((buffer_height + 1) / 2);
+      if (cur_len < y_size + uv_size) {
+        src_buffer->Unlock();
+        RTC_LOG(LS_ERROR) << "Decode failure: output buffer holds " << cur_len
+                          << " bytes, " << (y_size + uv_size) << " needed for "
+                          << buffer_width << "x" << buffer_height << " NV12.";
+        return MF_E_BUFFERTOOSMALL;
+      }
+
+      const uint8_t* src_uv = src_data + y_size;
       libyuv::NV12ToI420(
           src_data, src_stride_y, src_uv, src_stride_uv, buffer->MutableDataY(),
           buffer->StrideY(), buffer->MutableDataU(), buffer->StrideU(),
