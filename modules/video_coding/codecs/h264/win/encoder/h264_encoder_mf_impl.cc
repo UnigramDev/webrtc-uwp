@@ -231,9 +231,23 @@ int H264EncoderMFImpl::InitWriter() {
     inited_ = true;
     last_rate_change_time_rtc_ms = rtc::TimeMillis();
     return WEBRTC_VIDEO_CODEC_OK;
-  } else {
-    return hr;
   }
+
+  // Leave nothing half-built behind. A later InitWriter does
+  // MakeAndInitialize<H264MediaSink>(&mediaSink_) over the top, and WRL's
+  // operator& releases the old sink without shutting it down -- which strands
+  // its stream sink and the serial work queue that comes with it.
+  //
+  // Shutting down under crit_ is safe here specifically: BeginWriting is the
+  // last step, so on this path no sample has ever been handed to the sink and
+  // no OnH264Encoded can be in flight to invert the lock order.
+  if (mediaSink_ != nullptr) {
+    mediaSink_->Shutdown();
+    mediaSink_.Reset();
+  }
+  sinkWriter_.Reset();
+  inited_ = false;
+  return hr;
 }
 
 int H264EncoderMFImpl::RegisterEncodeCompleteCallback(
@@ -640,11 +654,6 @@ void H264EncoderMFImpl::OnH264Encoded(ComPtr<IMFSample> sample) {
 #define DYNAMIC_BITRATE
 
 void H264EncoderMFImpl::SetRates(const RateControlParameters& parameters) {
-  if (sinkWriter_ == nullptr) {
-    RTC_LOG(LS_ERROR) << "WEBRTC_VIDEO_CODEC_UNINITIALIZED";
-    return;
-  }
-
   RTC_LOG(LS_INFO) << "H264EncoderMFImpl::SetRates("
                    << parameters.bitrate.get_sum_kbps() << "kbps "
                    << parameters.framerate_fps << "fps)";
@@ -657,6 +666,15 @@ void H264EncoderMFImpl::SetRates(const RateControlParameters& parameters) {
 
   int64_t now = rtc::TimeMillis();
   webrtc::MutexLock lock(&crit_);
+
+  // Checked under the lock rather than before it: ReleaseWriter clears
+  // sinkWriter_ while holding crit_, so a check made outside can pass and the
+  // writer be gone by the time ReconfigureSinkWriter runs below.
+  if (sinkWriter_ == nullptr) {
+    RTC_LOG(LS_ERROR) << "WEBRTC_VIDEO_CODEC_UNINITIALIZED";
+    return;
+  }
+
   int64_t time_to_wait_before_rate_change =
       kMinIntervalBetweenRateChangesMs - (now - last_rate_change_time_rtc_ms);
   if (time_to_wait_before_rate_change > 0) {
