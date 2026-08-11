@@ -202,6 +202,12 @@ IFACEMETHODIMP H264StreamSink::ProcessSample(IMFSample *pSample) {
     sampleQueue_.push_back(pSample);
 
     hr = QueueAsyncOperation(OpProcessSample);
+    if (FAILED(hr)) {
+      // Draining is strictly one sample per work item, so a sample left in the
+      // queue with nothing scheduled to take it stays there until Shutdown --
+      // and every further failure adds another. Unwind the push instead.
+      sampleQueue_.pop_back();
+    }
   }
 
   return hr;
