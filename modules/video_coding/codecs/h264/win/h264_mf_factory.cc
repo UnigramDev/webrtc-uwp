@@ -64,7 +64,14 @@ vector<SdpVideoFormat> H264MFEncoderFactory::GetSupportedFormats() const {
 unique_ptr<VideoEncoder> H264MFEncoderFactory::CreateVideoEncoder(
     const SdpVideoFormat& format) {
   if (absl::EqualsIgnoreCase(format.name.c_str(), cricket::kH264CodecName)) {
-    return make_unique<H264EncoderMFImpl>();
+    // The negotiated profile decides both what the transform is configured for
+    // and which transforms can be used at all, so it has to reach the encoder.
+    const absl::optional<H264ProfileLevelId> profile_level_id =
+        ParseSdpForH264ProfileLevelId(format.parameters);
+    return make_unique<H264EncoderMFImpl>(
+        profile_level_id.has_value()
+            ? profile_level_id->profile
+            : H264Profile::kProfileConstrainedBaseline);
   }
 
   return builtin_video_encoder_factory_->CreateVideoEncoder(format);
