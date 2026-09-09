@@ -724,6 +724,12 @@ bool H264EncoderMFImpl::RequestKeyFrame() {
 }
 
 bool H264EncoderMFImpl::UpdateFrameSize(UINT32 width, UINT32 height) {
+  // Logged because this is the one path that cannot be seen from outside: it
+  // fires when WebRTC adapts resolution, which is exactly when a link is going
+  // bad, and it is the sequence most likely to be refused by a driver.
+  RTC_LOG(LS_INFO) << "H.264 encoder resize: " << width_ << "x" << height_
+                   << " to " << width << "x" << height;
+
   // Anything already handed to the transform belongs to the old size.
   pending_.clear();
   pending_metadata_.clear();
@@ -1210,6 +1216,7 @@ int32_t H264EncoderMFImpl::Encode(const VideoFrame& frame,
         // Resizing in place failed, so fall back to a new transform. This is
         // the only path that builds one outside InitEncode, and it is bounded:
         // it happens once per failure, not once per frame.
+        RTC_LOG(LS_WARNING) << "Resize refused; rebuilding the transform";
         ReleaseTransform();
         width_ = frame_width;
         height_ = frame_height;
