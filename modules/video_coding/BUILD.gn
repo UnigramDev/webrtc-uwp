@@ -489,6 +489,9 @@ rtc_library("webrtc_h264") {
       "mfreadwrite.lib",
       "mfplat.lib",
       "mfuuid.lib",
+
+      # The decoder creates the D3D11 device it hands the transform.
+      "d3d11.lib",
     ]
   }
 
