@@ -24,6 +24,7 @@
 #include <cassert>
 #include <functional>
 #include <memory>
+#include <new>
 
 #include "modules/video_capture/video_capture_config.h"
 #include "modules/video_capture/windows/help_functions_winrt.h"
@@ -734,7 +735,15 @@ int32_t VideoCaptureWinRT::SetDeviceUniqueId(
 
   // Store the device name
   // VideoCaptureImpl::~VideoCaptureImpl reclaims _deviceUniqueId
-  _deviceUniqueId = new char[device_id_length + 1];
+  //
+  // nothrow because exceptions are disabled: plain new terminates the process
+  // on failure instead of letting the caller report it.
+  _deviceUniqueId = new (std::nothrow) char[device_id_length + 1];
+  if (_deviceUniqueId == nullptr) {
+    RTC_LOG(LS_ERROR) << "failed to allocate _deviceUniqueId";
+    return -1;
+  }
+
   memcpy(_deviceUniqueId, device_unique_id_UTF8, device_id_length + 1);
 
   return 0;
