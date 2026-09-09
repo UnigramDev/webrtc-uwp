@@ -542,16 +542,31 @@ bool H264EncoderMFImpl::ConfigureCodecApi() {
 }
 
 bool H264EncoderMFImpl::StartStreaming() {
+  // Best effort. There is nothing buffered in a transform that has just been
+  // configured, and Microsoft's software encoder rejects the command outright
+  // before streaming has begun -- measured, E_FAIL -- while encoding perfectly
+  // well afterwards. Only the two notifications below decide whether the
+  // transform is usable.
   HRESULT hr = transform_->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
-  if (SUCCEEDED(hr)) {
-    hr = transform_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
-  }
-  if (SUCCEEDED(hr)) {
-    hr = transform_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
-  }
   if (FAILED(hr)) {
-    RTC_LOG(LS_ERROR) << "Couldn't start streaming: " << HrToString(hr);
+    RTC_LOG(LS_INFO) << "Flush before streaming: " << HrToString(hr);
+  }
+
+  hr = transform_->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
+  if (FAILED(hr)) {
+    RTC_LOG(LS_ERROR) << "Couldn't begin streaming: " << HrToString(hr);
     return false;
+  }
+
+  // Required for an asynchronous transform -- it is what makes it start asking
+  // for input -- and optional for a synchronous one, which may not implement it.
+  hr = transform_->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
+  if (FAILED(hr)) {
+    if (is_async_) {
+      RTC_LOG(LS_ERROR) << "Couldn't start the stream: " << HrToString(hr);
+      return false;
+    }
+    RTC_LOG(LS_INFO) << "Start of stream: " << HrToString(hr);
   }
 
   needs_input_ = 0;
