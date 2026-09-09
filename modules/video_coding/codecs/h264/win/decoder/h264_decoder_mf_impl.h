@@ -56,6 +56,8 @@ class H264DecoderMFImpl : public H264Decoder {
 
   int Release() override;
 
+  DecoderInfo GetDecoderInfo() const override;
+
   const char* ImplementationName() const override;
 
  private:

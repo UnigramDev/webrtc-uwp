@@ -872,6 +872,15 @@ int H264DecoderMFImpl::Release() {
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
+VideoDecoder::DecoderInfo H264DecoderMFImpl::GetDecoderInfo() const {
+  DecoderInfo info;
+  info.implementation_name = implementation_name_;
+  // Answered from whether the transform took the device manager, rather than
+  // left at the base class's false while the GPU does the decoding.
+  info.is_hardware_accelerated = using_d3d_;
+  return info;
+}
+
 const char* H264DecoderMFImpl::ImplementationName() const {
   return implementation_name_.c_str();
 }
