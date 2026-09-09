@@ -23,10 +23,12 @@
 
 #include <cassert>
 #include <functional>
+#include <memory>
 
 #include "modules/video_capture/video_capture_config.h"
 #include "modules/video_capture/windows/help_functions_winrt.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/synchronization/mutex.h"
 
 struct __declspec(uuid("5b0d3235-4dba-4d44-865e-8f1d0e4fd04d")) __declspec(
     novtable) IMemoryBufferByteAccess : ::IUnknown {
@@ -107,6 +109,20 @@ typedef std::function<int32_t(uint8_t*,
                               int64_t)>
     PFNIncomingFrameType;
 
+struct VideoCaptureWinRTInternal;
+
+// remove_FrameArrived does not join a handler already dispatched to a media
+// foundation work queue thread, and the StopAsync wait in StopCapture gives up
+// after 250ms, so teardown could free the capture module underneath a frame
+// still being delivered -- the crash was an access violation entering the
+// deleted VideoCaptureImpl::api_lock_. Deliveries go through this latch, which
+// the delegate co-owns: clearing `owner` under the lock both waits out a
+// delivery in flight and turns every later one into a no-op.
+struct FrameArrivedLatch {
+  Mutex lock;
+  VideoCaptureWinRTInternal* owner = nullptr;
+};
+
 struct VideoCaptureWinRTInternal {
  public:
   explicit VideoCaptureWinRTInternal(
@@ -129,13 +145,24 @@ struct VideoCaptureWinRTInternal {
 
   bool is_capturing = false;
   PFNIncomingFrameType pfn_incoming_frame_;
+
+  const std::shared_ptr<FrameArrivedLatch> frame_arrived_latch_ =
+      std::make_shared<FrameArrivedLatch>();
 };
 
 VideoCaptureWinRTInternal::VideoCaptureWinRTInternal(
     const PFNIncomingFrameType& pfn_incoming_frame)
-    : pfn_incoming_frame_(pfn_incoming_frame) {}
+    : pfn_incoming_frame_(pfn_incoming_frame) {
+  frame_arrived_latch_->owner = this;
+}
 
 VideoCaptureWinRTInternal::~VideoCaptureWinRTInternal() {
+  // Has to come first: everything below assumes no frame is being delivered.
+  {
+    MutexLock lock(&frame_arrived_latch_->lock);
+    frame_arrived_latch_->owner = nullptr;
+  }
+
   HRESULT hr = S_OK;
   hr = StopCapture();
   assert(SUCCEEDED(hr));
@@ -381,9 +408,13 @@ HRESULT VideoCaptureWinRTInternal::StartCapture(
     hr = media_frame_reader_->add_FrameArrived(
         Callback<
             ITypedEventHandler<MediaFrameReader*, MediaFrameArrivedEventArgs*>>(
-            [this](IMediaFrameReader* pSender,
-                   IMediaFrameArrivedEventArgs* pEventArgs) {
-              return this->FrameArrived(pSender, pEventArgs);
+            [latch = frame_arrived_latch_](
+                IMediaFrameReader* pSender,
+                IMediaFrameArrivedEventArgs* pEventArgs) {
+              MutexLock lock(&latch->lock);
+              return latch->owner
+                         ? latch->owner->FrameArrived(pSender, pEventArgs)
+                         : S_OK;
             })
             .Get(),
         &media_source_frame_arrived_token);
