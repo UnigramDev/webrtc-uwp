@@ -60,6 +60,11 @@ constexpr size_t kMaxPendingInputs = 3;
 // cannot hold the encoder queue forever.
 constexpr int kMaxOutputsPerDrain = 32;
 
+// Frames handed to the transform and not yet seen coming out. A transform that
+// takes input and produces nothing would otherwise accumulate one entry per
+// captured frame for the length of the call.
+constexpr size_t kMaxInFlightFrames = 64;
+
 // GOP length when the codec settings do not ask for one. Realtime video relies
 // on receiver-driven key frame requests, so this is deliberately long.
 constexpr UINT32 kDefaultGopLength = 3000;
@@ -870,6 +875,12 @@ HRESULT H264EncoderMFImpl::FeedSample(const ComPtr<IMFSample>& sample,
   const HRESULT hr =
       transform_->ProcessInput(input_stream_id_, sample.Get(), 0);
   if (SUCCEEDED(hr)) {
+    // Bounded even though a transform that takes input normally produces
+    // output: nothing in an encoder should be able to grow without a limit,
+    // which is the whole reason this file was rewritten.
+    while (in_flight_.size() >= kMaxInFlightFrames) {
+      in_flight_.pop_front();
+    }
     in_flight_.push_back(metadata);
   }
   return hr;
