@@ -467,8 +467,16 @@ int H264EncoderMFImpl::Encode(const VideoFrame& frame,
         rate_change_requested_ &&
         (now - last_rate_change_time_rtc_ms) > kMinIntervalBetweenRateChangesMs;
     if (res_changed || should_change_rate_now) {
-      int res = ReconfigureSinkWriter(cur_width, cur_height, next_target_bps_,
-                                      next_frame_rate_);
+      // next_* only holds a rate a postponed SetRates asked for: it is zero
+      // until one happens and stale once one has been applied. A resolution
+      // change on its own has to carry the rates the writer already has, or
+      // InitWriter hands the encoder MFT a media type whose MF_MT_AVG_BITRATE
+      // and MF_MT_FRAME_RATE are 0.
+      UINT32 target_bps = should_change_rate_now ? next_target_bps_ : target_bps_;
+      UINT32 frame_rate = should_change_rate_now ? next_frame_rate_ : frame_rate_;
+
+      int res =
+          ReconfigureSinkWriter(cur_width, cur_height, target_bps, frame_rate);
       if (FAILED(res)) {
         return res;
       }
