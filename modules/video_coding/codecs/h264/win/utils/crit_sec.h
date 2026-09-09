@@ -13,12 +13,20 @@
 
 #include <WinBase.h>
 
+#include "rtc_base/checks.h"
+
 class CritSec {
  public:
   CRITICAL_SECTION m_criticalSection;
 
  public:
-  CritSec() { InitializeCriticalSectionEx(&m_criticalSection, 100, 0); }
+  // Checked rather than ignored: it fails only when the debug info cannot be
+  // allocated, which is under the memory exhaustion these calls already die of,
+  // and an uninitialised section makes every later Enter/Leave undefined. Better
+  // to name the failure here than to corrupt at the first lock.
+  CritSec() {
+    RTC_CHECK(InitializeCriticalSectionEx(&m_criticalSection, 100, 0));
+  }
 
   ~CritSec() { DeleteCriticalSection(&m_criticalSection); }
 
