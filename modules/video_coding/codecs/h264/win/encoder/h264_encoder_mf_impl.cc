@@ -116,9 +116,12 @@ class H264EncoderMFImpl::EventCallback
   }
 
   IFACEMETHODIMP GetParameters(DWORD* flags, DWORD* queue) override {
-    // Documented as the correct answer for a callback with no special
-    // scheduling requirements.
-    return E_NOTIMPL;
+    // Fast IO lets Media Foundation invoke this without a work-item round trip,
+    // which is what Chromium's proxy asks for. The handler only moves a sample
+    // between queues, so it is short enough to qualify.
+    *flags = MFASYNC_FAST_IO_PROCESSING_CALLBACK;
+    *queue = MFASYNC_CALLBACK_QUEUE_TIMER;
+    return S_OK;
   }
 
   IFACEMETHODIMP Invoke(IMFAsyncResult* result) override {
@@ -238,10 +241,15 @@ int32_t H264EncoderMFImpl::InitTransform() {
     RTC_LOG(LS_ERROR) << "No H.264 encoder transform could be activated";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
-  if (!ConfigureMediaTypes()) {
+  // Codec properties before the media types, the order Chromium's encoder uses.
+  // Measured to make no difference on either the Intel or the Microsoft
+  // transform -- both accept and retain every property either way -- but a
+  // driver that only accepts properties before the type is negotiated is a
+  // plausible thing to meet, and this order costs nothing.
+  if (!ConfigureCodecApi()) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
-  if (!ConfigureCodecApi()) {
+  if (!ConfigureMediaTypes()) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
   if (!StartStreaming()) {
@@ -818,8 +826,23 @@ ComPtr<IMFSample> H264EncoderMFImpl::CreateInputSample(const VideoFrame& frame,
                                                        DWORD buffer_alignment,
                                                        LONGLONG time_hns,
                                                        LONGLONG duration_hns) {
-  rtc::scoped_refptr<I420BufferInterface> i420 =
-      frame.video_frame_buffer()->ToI420();
+  rtc::scoped_refptr<VideoFrameBuffer> frame_buffer = frame.video_frame_buffer();
+
+  // A frame bigger than the transform is configured for is scaled down rather
+  // than encoded at its own size; see the comment in Encode(). Skipped
+  // altogether when the sizes already match, which is the usual case.
+  if (frame_buffer->width() != static_cast<int>(width) ||
+      frame_buffer->height() != static_cast<int>(height)) {
+    frame_buffer = frame_buffer->Scale(static_cast<int>(width),
+                                       static_cast<int>(height));
+    if (frame_buffer == nullptr) {
+      RTC_LOG(LS_ERROR) << "Couldn't scale a frame to " << width << "x"
+                        << height;
+      return nullptr;
+    }
+  }
+
+  rtc::scoped_refptr<I420BufferInterface> i420 = frame_buffer->ToI420();
   if (i420 == nullptr) {
     return nullptr;
   }
@@ -893,6 +916,12 @@ ComPtr<IMFSample> H264EncoderMFImpl::CreateInputSample(const VideoFrame& frame,
 
 HRESULT H264EncoderMFImpl::FeedSample(const ComPtr<IMFSample>& sample,
                                       const FrameMetadata& metadata) {
+  // Requested here rather than when WebRTC asked for it, because the request
+  // applies to the next input the transform takes, and that is this sample.
+  if (metadata.key_frame) {
+    RequestKeyFrame();
+  }
+
   const HRESULT hr =
       transform_->ProcessInput(input_stream_id_, sample.Get(), 0);
   if (SUCCEEDED(hr)) {
@@ -905,6 +934,39 @@ HRESULT H264EncoderMFImpl::FeedSample(const ComPtr<IMFSample>& sample,
     in_flight_.push_back(metadata);
   }
   return hr;
+}
+
+void H264EncoderMFImpl::FeedPending() {
+  if (needs_input_ <= 0 || pending_.empty()) {
+    return;
+  }
+
+  const ComPtr<IMFSample> sample = pending_.front();
+  const FrameMetadata metadata = pending_metadata_.front();
+  const HRESULT hr = FeedSample(sample, metadata);
+
+  if (hr == MF_E_NOTACCEPTING) {
+    // A hardware transform can refuse the input that its own
+    // METransformNeedInput asked for -- Chromium hits this too,
+    // crbug.com/377749373. The sample stays at the head of the queue and the
+    // credit is not spent, so the next event retries it. Rebuilding the
+    // transform here, as this used to, would cost 80ms for a condition that
+    // clears by itself.
+    RTC_LOG(LS_INFO) << "The transform refused input; retrying";
+    return;
+  }
+
+  if (FAILED(hr)) {
+    RTC_LOG(LS_WARNING) << "ProcessInput failed: " << HrToString(hr);
+    broken_ = true;
+    return;
+  }
+
+  pending_.pop_front();
+  pending_metadata_.pop_front();
+  // Only now: the credit stands for a sample the transform actually took. The
+  // transform never accepts two inputs in a row, so exactly one per credit.
+  --needs_input_;
 }
 
 bool H264EncoderMFImpl::PopMetadata(LONGLONG time_hns, FrameMetadata* out) {
@@ -1118,23 +1180,11 @@ void H264EncoderMFImpl::OnTransformEvent(IMFMediaEventGenerator* generator_raw,
     } else {
       switch (type) {
         case METransformNeedInput: {
-          if (pending_.empty()) {
-            // Capped: a transform that keeps asking while nothing is being
-            // captured must not build up credits it can spend all at once.
-            needs_input_ =
-                std::min<int>(needs_input_ + 1,
-                              static_cast<int>(kMaxPendingInputs));
-          } else {
-            const ComPtr<IMFSample> sample = pending_.front();
-            const FrameMetadata metadata = pending_metadata_.front();
-            pending_.pop_front();
-            pending_metadata_.pop_front();
-            const HRESULT hr = FeedSample(sample, metadata);
-            if (FAILED(hr)) {
-              RTC_LOG(LS_WARNING) << "ProcessInput failed: " << HrToString(hr);
-              broken_ = true;
-            }
-          }
+          // Capped: a transform that keeps asking while nothing is being
+          // captured must not build up credits it can spend all at once.
+          needs_input_ = std::min<int>(needs_input_ + 1,
+                                       static_cast<int>(kMaxPendingInputs));
+          FeedPending();
           break;
         }
         case METransformHaveOutput: {
@@ -1188,6 +1238,8 @@ int32_t H264EncoderMFImpl::Encode(const VideoFrame& frame,
 
   ComPtr<IMFSample> sample;
   FrameMetadata metadata;
+  UINT32 encode_width = 0;
+  UINT32 encode_height = 0;
   DWORD buffer_size = 0;
   DWORD buffer_alignment = 0;
   LONGLONG duration_hns = 0;
@@ -1211,7 +1263,19 @@ int32_t H264EncoderMFImpl::Encode(const VideoFrame& frame,
       }
     }
 
-    if (frame_width != width_ || frame_height != height_) {
+    // WebRTC guarantees only that the frame is at least the size the encoder
+    // was configured for -- video_stream_encoder.cc asserts
+    // `send_codec_.width <= out_frame.width()` -- and expects an encoder handed
+    // a larger frame to encode at the configured size anyway. A larger frame is
+    // therefore scaled down below, not encoded at its own size: doing the
+    // latter sends more pixels than the bitrate allocation, the stats and the
+    // adaptation logic were computed for. Chromium's encoder does the same, in
+    // PopulateInputSampleBuffer. Only a frame that is too small needs the
+    // transform retargeted, and WebRTC says that should not happen.
+    if (frame_width < width_ || frame_height < height_) {
+      RTC_LOG(LS_WARNING) << "A frame smaller than the configured size: "
+                          << frame_width << "x" << frame_height << " against "
+                          << width_ << "x" << height_;
       if (!UpdateFrameSize(frame_width, frame_height)) {
         // Resizing in place failed, so fall back to a new transform. This is
         // the only path that builds one outside InitEncode, and it is bounded:
@@ -1228,17 +1292,16 @@ int32_t H264EncoderMFImpl::Encode(const VideoFrame& frame,
       }
     }
 
-    if (keyframe_requested) {
-      RequestKeyFrame();
-    }
-
     metadata.time_hns = FrameTimeHns(frame);
     metadata.rtp_timestamp = frame.timestamp();
     metadata.ntp_time_ms = frame.ntp_time_ms();
     metadata.capture_time_ms = frame.render_time_ms();
     metadata.width = width_;
     metadata.height = height_;
+    metadata.key_frame = keyframe_requested;
 
+    encode_width = width_;
+    encode_height = height_;
     buffer_size = input_buffer_size_;
     buffer_alignment = input_buffer_alignment_;
     duration_hns = kOneSecondInHns / std::max<UINT32>(fps_, 1);
@@ -1246,7 +1309,7 @@ int32_t H264EncoderMFImpl::Encode(const VideoFrame& frame,
 
   // Outside the lock: this is a full frame conversion and copy, and holding the
   // lock across it would stall the event thread behind it.
-  sample = CreateInputSample(frame, frame_width, frame_height, buffer_size,
+  sample = CreateInputSample(frame, encode_width, encode_height, buffer_size,
                              buffer_alignment, metadata.time_hns, duration_hns);
   if (sample == nullptr) {
     return WEBRTC_VIDEO_CODEC_ERROR;
@@ -1262,17 +1325,13 @@ int32_t H264EncoderMFImpl::Encode(const VideoFrame& frame,
     }
 
     if (is_async_) {
-      if (needs_input_ > 0) {
-        --needs_input_;
-        const HRESULT hr = FeedSample(sample, metadata);
-        if (FAILED(hr)) {
-          RTC_LOG(LS_WARNING) << "ProcessInput failed: " << HrToString(hr);
-          broken_ = true;
-          return WEBRTC_VIDEO_CODEC_ERROR;
-        }
-      } else if (pending_.size() < kMaxPendingInputs) {
+      // Queue then feed, rather than feeding directly when a credit happens to
+      // be free: it keeps one path through the transform, so a refused input
+      // is retried from the same place wherever it came from.
+      if (pending_.size() < kMaxPendingInputs) {
         pending_.push_back(sample);
         pending_metadata_.push_back(metadata);
+        FeedPending();
       } else {
         // The hardware has stopped asking for input. Dropping here is what
         // keeps the encoder queue from turning into a frame buffer.
@@ -1315,6 +1374,12 @@ VideoEncoder::EncoderInfo H264EncoderMFImpl::GetEncoderInfo() const {
                                  : "MediaFoundation: " + implementation_name_;
   info.scaling_settings =
       VideoEncoder::ScalingSettings(kLowH264QpThreshold, kHighH264QpThreshold);
+  // Media Foundation encoders handle odd resolutions badly, so WebRTC is asked
+  // to deliver even ones -- Chromium reports the same for the same reason,
+  // crbug.com/1275453. It also removes the commonest way for a delivered frame
+  // to differ from the configured size.
+  info.requested_resolution_alignment = 2;
+  info.apply_alignment_to_all_simulcast_layers = true;
   // Answered from the transform that was actually activated, rather than
   // asserted. The previous implementation could not tell, because the sink
   // writer chose the transform for it.
