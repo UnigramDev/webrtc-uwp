@@ -85,6 +85,10 @@ class H264EncoderMFImpl : public VideoEncoder {
     int64_t capture_time_ms = 0;
     uint32_t width = 0;
     uint32_t height = 0;
+    // Carried with the frame rather than applied when the request arrives: a
+    // queued frame may be fed later, and CODECAPI_AVEncVideoForceKeyFrame
+    // applies to whatever the transform takes next.
+    bool key_frame = false;
   };
 
   // One encoded frame, lifted out from under the lock so that the callback into
@@ -127,6 +131,9 @@ class H264EncoderMFImpl : public VideoEncoder {
   HRESULT FeedSample(const Microsoft::WRL::ComPtr<IMFSample>& sample,
                      const FrameMetadata& metadata)
       RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
+  // Hands the transform one queued sample if it has asked for input. An input
+  // credit is spent only when the sample is actually accepted.
+  void FeedPending() RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
 
   // Output. Both collect into `out` rather than calling WebRTC under the lock.
   HRESULT DrainOutputs(std::vector<EncodedFrame>* out)
