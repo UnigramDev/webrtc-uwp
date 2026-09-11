@@ -116,12 +116,13 @@ class H264EncoderMFImpl::EventCallback
   }
 
   IFACEMETHODIMP GetParameters(DWORD* flags, DWORD* queue) override {
-    // Fast IO lets Media Foundation invoke this without a work-item round trip,
-    // which is what Chromium's proxy asks for. The handler only moves a sample
-    // between queues, so it is short enough to qualify.
-    *flags = MFASYNC_FAST_IO_PROCESSING_CALLBACK;
-    *queue = MFASYNC_CALLBACK_QUEUE_TIMER;
-    return S_OK;
+    // Deliberately NOT Chromium's MFASYNC_FAST_IO_PROCESSING_CALLBACK. That
+    // flag promises Media Foundation the handler is short enough to run inline
+    // on its thread, which is true of Chromium's -- it posts the event to its
+    // own sequence and returns. Ours takes the output out of the transform and
+    // delivers the encoded frame into WebRTC's send path before returning, so
+    // it does not qualify.
+    return E_NOTIMPL;
   }
 
   IFACEMETHODIMP Invoke(IMFAsyncResult* result) override {
