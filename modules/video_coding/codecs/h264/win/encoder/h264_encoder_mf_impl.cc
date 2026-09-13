@@ -28,6 +28,7 @@
 #include "api/video/encoded_image.h"
 #include "api/video/i420_buffer.h"
 #include "libyuv/convert.h"
+#include "libyuv/planar_functions.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/string_utils.h"
@@ -843,9 +844,18 @@ ComPtr<IMFSample> H264EncoderMFImpl::CreateInputSample(const VideoFrame& frame,
     }
   }
 
-  rtc::scoped_refptr<I420BufferInterface> i420 = frame_buffer->ToI420();
-  if (i420 == nullptr) {
-    return nullptr;
+  // NV12 is what the transform takes. A frame that already holds it -- the screen
+  // capturer converts BGRA straight to NV12 -- is copied in plane by plane, so the frame
+  // is walked once instead of being turned into I420 here and back in the transform.
+  const NV12BufferInterface* nv12 =
+      frame_buffer->type() == VideoFrameBuffer::Type::kNV12 ? frame_buffer->GetNV12()
+                                                            : nullptr;
+  rtc::scoped_refptr<I420BufferInterface> i420;
+  if (nv12 == nullptr) {
+    i420 = frame_buffer->ToI420();
+    if (i420 == nullptr) {
+      return nullptr;
+    }
   }
 
   ComPtr<IMFSample> sample;
@@ -879,12 +889,23 @@ ComPtr<IMFSample> H264EncoderMFImpl::CreateInputSample(const VideoFrame& frame,
   }
 
   // NV12, tightly packed: the media type carries no explicit stride, so the
-  // default is the frame width.
-  const int result = libyuv::I420ToNV12(
-      i420->DataY(), i420->StrideY(), i420->DataU(), i420->StrideU(),
-      i420->DataV(), i420->StrideV(), data, static_cast<int>(width),
-      data + y_size, static_cast<int>(width), static_cast<int>(width),
-      static_cast<int>(height));
+  // default is the frame width. The UV plane is interleaved, which makes its row as wide
+  // in bytes as the Y one and half as tall.
+  int result = 0;
+  if (nv12 != nullptr) {
+    libyuv::CopyPlane(nv12->DataY(), nv12->StrideY(), data,
+                      static_cast<int>(width), static_cast<int>(width),
+                      static_cast<int>(height));
+    libyuv::CopyPlane(nv12->DataUV(), nv12->StrideUV(), data + y_size,
+                      static_cast<int>(width), static_cast<int>(width),
+                      static_cast<int>(height) / 2);
+  } else {
+    result = libyuv::I420ToNV12(
+        i420->DataY(), i420->StrideY(), i420->DataU(), i420->StrideU(),
+        i420->DataV(), i420->StrideV(), data, static_cast<int>(width),
+        data + y_size, static_cast<int>(width), static_cast<int>(width),
+        static_cast<int>(height));
+  }
 
   if (max_length > y_size + uv_size) {
     // The transform may hand back a buffer larger than the frame; leaving the
@@ -1386,6 +1407,10 @@ VideoEncoder::EncoderInfo H264EncoderMFImpl::GetEncoderInfo() const {
   // writer chose the transform for it.
   info.is_hardware_accelerated = is_hardware_;
   info.supports_simulcast = false;
+  // NV12 first because that is what the transform takes; I420 stays in the list as the
+  // format every source can produce.
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNV12,
+                                  VideoFrameBuffer::Type::kI420};
   return info;
 }
 
