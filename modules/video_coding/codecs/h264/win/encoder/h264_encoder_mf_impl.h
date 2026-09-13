@@ -100,6 +100,9 @@ class H264EncoderMFImpl : public VideoEncoder {
 
   enum class Vendor { kOther, kIntel, kNvidia, kAmd, kQualcomm };
 
+  // Whether the transform accepted being told that it is encoding a screen.
+  bool scenario_is_display_ = false;
+
   // Transform lifecycle. All of these run with mutex_ held.
   int32_t InitTransform() RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
   bool ActivateTransform() RTC_EXCLUSIVE_LOCKS_REQUIRED(mutex_);
