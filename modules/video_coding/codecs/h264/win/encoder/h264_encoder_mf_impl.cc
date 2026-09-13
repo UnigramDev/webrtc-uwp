@@ -262,7 +262,9 @@ int32_t H264EncoderMFImpl::InitTransform() {
                    << (is_hardware_ ? "hardware" : "software") << ", "
                    << (is_async_ ? "async" : "sync") << ", " << width_ << "x"
                    << height_ << "@" << configured_fps_ << " "
-                   << target_bps_ / 1000 << "kbps";
+                   << target_bps_ / 1000 << "kbps"
+                   << (mode_ == VideoCodecMode::kScreensharing ? ", screen" : "")
+                   << (scenario_is_display_ ? " (display remoting)" : "");
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -531,6 +533,24 @@ bool H264EncoderMFImpl::ConfigureCodecApi() {
   if (codec_api_->IsModifiable(&CODECAPI_AVEncAdaptiveMode) == S_OK) {
     var.ulVal = eAVEncAdaptiveMode_Resolution;
     codec_api_->SetValue(&CODECAPI_AVEncAdaptiveMode, &var);
+  }
+
+  // A driver told it is encoding a screen encodes it differently: long term references
+  // and the screen content coding tools, which is what keeps small text legible at the
+  // bitrate a screen share is given. Intel only, where Chromium has it tested -
+  // crbug.com/336592435 - and only when WebRTC says the source is a screen.
+  scenario_is_display_ = false;
+  if (mode_ == VideoCodecMode::kScreensharing && vendor_ == Vendor::kIntel &&
+      codec_api_->IsModifiable(&CODECAPI_AVScenarioInfo) == S_OK) {
+    var.ulVal = eAVScenarioInfo_DisplayRemoting;
+    const HRESULT scenario_hr =
+        codec_api_->SetValue(&CODECAPI_AVScenarioInfo, &var);
+    if (FAILED(scenario_hr)) {
+      RTC_LOG(LS_WARNING) << "Couldn't set the display remoting scenario: "
+                          << HrToString(scenario_hr);
+    } else {
+      scenario_is_display_ = true;
+    }
   }
 
   // Qualcomm's transform emits B-frames unless told not to, and B-frames
