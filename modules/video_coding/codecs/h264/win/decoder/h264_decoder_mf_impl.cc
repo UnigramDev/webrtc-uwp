@@ -24,6 +24,7 @@
 #include "../utils/utils.h"
 #include "common_video/include/video_frame_buffer.h"
 #include "libyuv/convert.h"
+#include "modules/video_coding/codecs/h264/win/d3d11_texture_buffer.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
@@ -177,6 +178,8 @@ bool H264DecoderMFImpl::CreateD3DManager() {
 }
 
 void H264DecoderMFImpl::ReleaseD3D() {
+  texture_ring_ = nullptr;
+  texture_output_failed_ = false;
   staging_texture_.Reset();
   staging_width_ = 0;
   staging_height_ = 0;
@@ -479,6 +482,52 @@ HRESULT H264DecoderMFImpl::TextureToI420(IMFDXGIBuffer* dxgi_buffer,
   return result == 0 ? S_OK : E_FAIL;
 }
 
+rtc::scoped_refptr<VideoFrameBuffer> H264DecoderMFImpl::WrapTexture(
+    IMFSample* sample,
+    UINT32 width,
+    UINT32 height,
+    bool bt709,
+    bool full_range) {
+  ComPtr<IMFMediaBuffer> media_buffer;
+  ComPtr<IMFDXGIBuffer> dxgi_buffer;
+  ComPtr<ID3D11Texture2D> texture;
+  if (FAILED(sample->GetBufferByIndex(0, &media_buffer)) ||
+      FAILED(media_buffer.As(&dxgi_buffer)) ||
+      FAILED(dxgi_buffer->GetResource(IID_PPV_ARGS(&texture)))) {
+    return nullptr;
+  }
+
+  UINT subresource = 0;
+  dxgi_buffer->GetSubresourceIndex(&subresource);
+
+  D3D11_TEXTURE2D_DESC desc = {};
+  texture->GetDesc(&desc);
+
+  // NV12 needs even sizes. The decoder's texture is padded to its macroblocks,
+  // so rounding the visible area up still fits inside it.
+  const UINT texture_width = (width + 1) & ~1u;
+  const UINT texture_height = (height + 1) & ~1u;
+  if (desc.Format != DXGI_FORMAT_NV12 || texture_width > desc.Width ||
+      texture_height > desc.Height) {
+    return nullptr;
+  }
+
+  if (texture_ring_ == nullptr ||
+      texture_ring_->texture_width() != static_cast<int>(texture_width) ||
+      texture_ring_->texture_height() != static_cast<int>(texture_height)) {
+    texture_ring_ = D3D11TextureRing::Create(d3d_device_.Get(), texture_width,
+                                             texture_height);
+    if (texture_ring_ == nullptr) {
+      texture_output_failed_ = true;
+      return nullptr;
+    }
+  }
+
+  return texture_ring_->Wrap(texture.Get(), subresource,
+                             static_cast<int>(width), static_cast<int>(height),
+                             bt709, full_range);
+}
+
 HRESULT H264DecoderMFImpl::SampleToI420(IMFSample* sample,
                                         UINT32 width,
                                         UINT32 height,
@@ -608,6 +657,8 @@ HRESULT H264DecoderMFImpl::FlushFrames(uint32_t rtp_timestamp,
     UINT32 height = 0;
     UINT32 buffer_width = 0;
     UINT32 buffer_height = 0;
+    bool bt709 = false;
+    bool full_range = false;
     {
       ComPtr<IMFMediaType> output_type;
       hr = decoder_->GetOutputCurrentType(0, output_type.GetAddressOf());
@@ -636,6 +687,16 @@ HRESULT H264DecoderMFImpl::FlushFrames(uint32_t rtp_timestamp,
 
       width_.emplace(width);
       height_.emplace(height);
+
+      // Only a texture frame carries these; the I420 path never converts.
+      UINT32 matrix = 0;
+      if (SUCCEEDED(output_type->GetUINT32(MF_MT_YUV_MATRIX, &matrix))) {
+        bt709 = matrix == MFVideoTransferMatrix_BT709;
+      }
+      UINT32 range = 0;
+      if (SUCCEEDED(output_type->GetUINT32(MF_MT_VIDEO_NOMINAL_RANGE, &range))) {
+        full_range = range == MFNominalRange_0_255;
+      }
     }
 
     // Everything below indexes with these, and they come from the transform
@@ -649,22 +710,34 @@ HRESULT H264DecoderMFImpl::FlushFrames(uint32_t rtp_timestamp,
       return MF_E_INVALIDMEDIATYPE;
     }
 
-    rtc::scoped_refptr<I420Buffer> buffer =
-        buffer_pool_.CreateI420Buffer(width, height);
-    if (buffer == nullptr) {
-      RTC_LOG(LS_WARNING) << "Decode warning: too many frames. Dropping frame.";
-      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+    rtc::scoped_refptr<VideoFrameBuffer> frame_buffer;
+    if (using_d3d_ && !texture_output_failed_ &&
+        D3D11TextureBuffer::enabled()) {
+      frame_buffer =
+          WrapTexture(sample.Get(), width, height, bt709, full_range);
     }
 
-    hr = SampleToI420(sample.Get(), width, height, buffer_width, buffer_height,
-                      buffer.get());
-    if (FAILED(hr)) {
-      return hr;
+    if (frame_buffer == nullptr) {
+      rtc::scoped_refptr<I420Buffer> buffer =
+          buffer_pool_.CreateI420Buffer(width, height);
+      if (buffer == nullptr) {
+        RTC_LOG(LS_WARNING)
+            << "Decode warning: too many frames. Dropping frame.";
+        return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+      }
+
+      hr = SampleToI420(sample.Get(), width, height, buffer_width,
+                        buffer_height, buffer.get());
+      if (FAILED(hr)) {
+        return hr;
+      }
+
+      frame_buffer = buffer;
     }
 
     // The transform may interpolate its own sample times, so the RTP timestamp
     // of the frame that produced this one is used instead.
-    VideoFrame decoded_frame(buffer, rtp_timestamp, 0, kVideoRotation_0);
+    VideoFrame decoded_frame(frame_buffer, rtp_timestamp, 0, kVideoRotation_0);
     decoded_frame.set_ntp_time_ms(ntp_time_ms);
 
     if (decode_complete_callback_ != nullptr) {

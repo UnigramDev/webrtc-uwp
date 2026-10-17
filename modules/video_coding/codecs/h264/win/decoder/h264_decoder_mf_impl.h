@@ -24,6 +24,7 @@
 #include "api/video_codecs/video_decoder.h"
 #include "common_video/include/video_frame_buffer_pool.h"
 #include "modules/video_coding/codecs/h264/include/h264.h"
+#include "modules/video_coding/codecs/h264/win/d3d11_texture_ring.h"
 #include "rtc_base/synchronization/mutex.h"
 
 namespace webrtc {
@@ -33,9 +34,9 @@ namespace webrtc {
 // The transform is given a D3D11 device manager, which is what makes it decode
 // on the GPU: Microsoft's decoder is DXVA-capable but stays in software until
 // one is set, and setting one was missing here, so every call decoded on the
-// CPU. Frames are read back and converted to I420 because that is what the rest
-// of the pipeline takes; handing the texture through to the renderer is the
-// next step, and the one that removes the readback.
+// CPU. A decoded frame is handed on as a D3D11TextureBuffer, copied on the GPU
+// into a texture a renderer can open, and read back to I420 only when a
+// consumer asks for CPU pixels or no shared texture is free.
 //
 // Everything falls back: no device, no manager, a transform that refuses one, or
 // repeated readback failures all end with a software transform producing system
@@ -85,6 +86,14 @@ class H264DecoderMFImpl : public H264Decoder {
                         UINT32 height,
                         I420Buffer* buffer);
 
+  // The frame in `sample` as a D3D11TextureBuffer, or null when it has to be
+  // read back instead.
+  rtc::scoped_refptr<VideoFrameBuffer> WrapTexture(IMFSample* sample,
+                                                   UINT32 width,
+                                                   UINT32 height,
+                                                   bool bt709,
+                                                   bool full_range);
+
   Microsoft::WRL::ComPtr<IMFTransform> decoder_;
   Microsoft::WRL::ComPtr<IMFActivate> activate_;
   // Reused across ProcessOutput calls. The previous implementation allocated a
@@ -105,6 +114,11 @@ class H264DecoderMFImpl : public H264Decoder {
   // machine; the decoder re-initialises in software rather than dropping every
   // frame for the rest of the call.
   int readback_failures_ = 0;
+
+  // Recreated when the frame size changes; buffers still out keep the old one.
+  rtc::scoped_refptr<D3D11TextureRing> texture_ring_;
+  // Set when this device cannot share textures, so it is not retried per frame.
+  bool texture_output_failed_ = false;
 
   VideoFrameBufferPool buffer_pool_;
 
