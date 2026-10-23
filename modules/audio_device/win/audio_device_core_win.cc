@@ -648,6 +648,11 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
     }
 
     assert(_hThread == nullptr);
+
+    // A thread that missed its start-up wait still signals it when it gets
+    // there, which would let the next start pass without waiting.
+    ResetEvent(_hStartedEvent);
+
     _hThread = CreateThread(nullptr, 0, WSAPIThread, this, 0, nullptr);
     if (_hThread == nullptr) {
       RTC_LOG(LS_ERROR) << "failed to create the thread";
@@ -661,9 +666,9 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
     if (ret != WAIT_OBJECT_0) {
       RTC_LOG(LS_VERBOSE) << "did not start up properly";
 
-      // Stop transport thread and clean up
+      // The thread is still running, and the caller stops it with the lock
+      // released.
       _transporting = true;
-      StopTransport();
 
       return -1;
     }
@@ -674,32 +679,37 @@ struct AudioDeviceHelper : public DeviceHelper<DEVICE_CLASS> {
     return 0;
   }
 
-  virtual int32_t StopTransport() {
-    if (!Transporting()) {
-      return 0;
-    }
-
+  // Stopping is split around the wait for the thread, which has to run with
+  // the lock released: the thread takes the same lock on every pass, so a wait
+  // that holds it can only time out.
+  HANDLE BeginStopTransport() {
     if (_hThread == nullptr) {
-      RTC_LOG(LS_VERBOSE)
-          << "no rendering stream is active => close down WASAPI only";
-      _transporting = false;
-      return 0;
+      if (Transporting()) {
+        RTC_LOG(LS_VERBOSE)
+            << "no rendering stream is active => close down WASAPI only";
+        _transporting = false;
+      }
+      return nullptr;
     }
 
     // stop the driving thread...
     RTC_LOG(LS_VERBOSE) << "closing down the webrtc_core_audio_thread...";
     SetEvent(_hShutdownEvent);
 
-    DWORD ret = WaitForSingleObject(_hThread, 2000);
-    if (ret != WAIT_OBJECT_0) {
-      // the thread did not stop as it should
-      RTC_LOG(LS_ERROR) << "failed to close down webrtc_core_audio_thread";
-      CloseHandle(_hThread);
-      _hThread = nullptr;
-      _transporting = false;
-      _transportInitialized = false;
-      _mixerInitialized = false;
-      return -1;
+    // Waited on without the lock, while a concurrent stop may close _hThread.
+    HANDLE thread = nullptr;
+    if (!DuplicateHandle(GetCurrentProcess(), _hThread, GetCurrentProcess(),
+                         &thread, SYNCHRONIZE, FALSE, 0)) {
+      RTC_LOG(LS_ERROR) << "failed to duplicate the audio thread handle";
+      return nullptr;
+    }
+
+    return thread;
+  }
+
+  int32_t EndStopTransport() {
+    if (_hThread == nullptr) {
+      return 0;
     }
 
     RTC_LOG(LS_VERBOSE) << "webrtc_core_audio_thread is now closed";
@@ -1969,6 +1979,39 @@ struct AudioDeviceWindowsCoreInternal {
       RO_INIT_MULTITHREADED};
 };
 
+namespace {
+
+// Never gives up on the thread: on a timeout the handle stays with the helper,
+// so a later stop, or Terminate, waits for it again. A thread let go would
+// keep running on a helper Terminate deletes, and on events it closes.
+template <typename Helper>
+int32_t StopTransportUnlocked(webrtc::Mutex& mutex,
+                              Helper* helper,
+                              DWORD timeout) {
+  HANDLE thread;
+  {
+    webrtc::MutexLock lock(&mutex);
+    thread = helper->BeginStopTransport();
+  }
+
+  if (thread == nullptr) {
+    return 0;
+  }
+
+  const DWORD ret = WaitForSingleObject(thread, timeout);
+  CloseHandle(thread);
+
+  if (ret != WAIT_OBJECT_0) {
+    RTC_LOG(LS_ERROR) << "failed to close down webrtc_core_audio_thread";
+    return -1;
+  }
+
+  webrtc::MutexLock lock(&mutex);
+  return helper->EndStopTransport();
+}
+
+}  // namespace
+
 // ============================================================================
 //                              Static Methods
 // ============================================================================
@@ -2087,11 +2130,25 @@ AudioDeviceGeneric::InitStatus AudioDeviceWindowsCore::Init() {
 // ----------------------------------------------------------------------------
 
 int32_t AudioDeviceWindowsCore::Terminate() {
-  webrtc::MutexLock lock(&_internal->_critSect);
+  CaptureDeviceInternal* capture;
+  RenderDeviceInternal* render;
+  {
+    webrtc::MutexLock lock(&_internal->_critSect);
 
-  if (!_internal->_initialized) {
-    return 0;
+    if (!_internal->_initialized) {
+      return 0;
+    }
+
+    capture = _internal->_pCaptureDeviceHelper;
+    render = _internal->_pRenderDeviceHelper;
   }
+
+  // Deleting a helper closes the events its thread waits on, so the threads go
+  // first, however long they take.
+  StopTransportUnlocked(_internal->_critSect, capture, INFINITE);
+  StopTransportUnlocked(_internal->_critSect, render, INFINITE);
+
+  webrtc::MutexLock lock(&_internal->_critSect);
 
   delete _internal->_pCaptureDeviceHelper;
   _internal->_pCaptureDeviceHelper = nullptr;
@@ -2483,8 +2540,22 @@ int32_t AudioDeviceWindowsCore::InitRecording() {
 // ----------------------------------------------------------------------------
 
 int32_t AudioDeviceWindowsCore::StartRecording() {
-  webrtc::MutexLock lock(&_internal->_critSect);
-  return _internal->_pCaptureDeviceHelper->StartTransport();
+  CaptureDeviceInternal* helper;
+  int32_t ret;
+  bool started;
+  {
+    webrtc::MutexLock lock(&_internal->_critSect);
+    helper = _internal->_pCaptureDeviceHelper;
+    ret = helper->StartTransport();
+    started = helper->Transporting();
+  }
+
+  // A thread that missed its start-up wait is still running.
+  if (ret != 0 && started) {
+    StopTransportUnlocked(_internal->_critSect, helper, 2000);
+  }
+
+  return ret;
 }
 
 // ----------------------------------------------------------------------------
@@ -2492,8 +2563,13 @@ int32_t AudioDeviceWindowsCore::StartRecording() {
 // ----------------------------------------------------------------------------
 
 int32_t AudioDeviceWindowsCore::StopRecording() {
-  webrtc::MutexLock lock(&_internal->_critSect);
-  return _internal->_pCaptureDeviceHelper->StopTransport();
+  CaptureDeviceInternal* helper;
+  {
+    webrtc::MutexLock lock(&_internal->_critSect);
+    helper = _internal->_pCaptureDeviceHelper;
+  }
+
+  return StopTransportUnlocked(_internal->_critSect, helper, 2000);
 }
 
 // ----------------------------------------------------------------------------
@@ -2525,8 +2601,22 @@ bool AudioDeviceWindowsCore::PlayoutIsInitialized() const {
 // ----------------------------------------------------------------------------
 
 int32_t AudioDeviceWindowsCore::StartPlayout() {
-  webrtc::MutexLock lock(&_internal->_critSect);
-  return _internal->_pRenderDeviceHelper->StartTransport();
+  RenderDeviceInternal* helper;
+  int32_t ret;
+  bool started;
+  {
+    webrtc::MutexLock lock(&_internal->_critSect);
+    helper = _internal->_pRenderDeviceHelper;
+    ret = helper->StartTransport();
+    started = helper->Transporting();
+  }
+
+  // A thread that missed its start-up wait is still running.
+  if (ret != 0 && started) {
+    StopTransportUnlocked(_internal->_critSect, helper, 2000);
+  }
+
+  return ret;
 }
 
 // ----------------------------------------------------------------------------
@@ -2534,8 +2624,13 @@ int32_t AudioDeviceWindowsCore::StartPlayout() {
 // ----------------------------------------------------------------------------
 
 int32_t AudioDeviceWindowsCore::StopPlayout() {
-  webrtc::MutexLock lock(&_internal->_critSect);
-  return _internal->_pRenderDeviceHelper->StopTransport();
+  RenderDeviceInternal* helper;
+  {
+    webrtc::MutexLock lock(&_internal->_critSect);
+    helper = _internal->_pRenderDeviceHelper;
+  }
+
+  return StopTransportUnlocked(_internal->_critSect, helper, 2000);
 }
 
 // ----------------------------------------------------------------------------
